@@ -1,0 +1,23 @@
+---
+- hosts: all
+  become: true
+  become_user: root
+  tasks:
+    - name: insert banner
+      copy: 
+        src: atg_banner
+        dest: /etc/ssh/atg_banner
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: turn on banner
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^Banner'
+        line: Banner /etc/ssh/atg_banner
+
+    - name: Restart ssh
+      service:
+      name: sshd
+      state: restarted
