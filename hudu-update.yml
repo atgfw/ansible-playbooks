@@ -1,0 +1,9 @@
+---
+- name: Run using a project directory
+  hosts: hudu.atgfw.com
+  gather_facts: false
+  tasks:
+    - name: Create and start services
+      community.docker.docker_compose:
+        project_src: /root/hudu2
+        pull: true
