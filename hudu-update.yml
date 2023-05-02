@@ -4,7 +4,9 @@
   gather_facts: false
   tasks:
     - name: Create and start services
-      command:
-        chdir: /root/hudu2/
-        cmd: "docker compose down && docker compose pull && docker compose up -d"
+      shell: |
+        cd /root/hudu2/
+        docker compose down
+        docker compose pull 
+        docker compose up -d
       become: true
