@@ -4,7 +4,7 @@
   gather_facts: false
   tasks:
     - name: Create and start services
-      community.docker.docker_compose:
-        project_src: /root/hudu2
-        pull: true
+      command:
+        chdir: /root/hudu2/
+        cmd: docker compose down && docker compose pull && docker compose up -d
       become: true
