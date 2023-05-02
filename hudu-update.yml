@@ -6,5 +6,5 @@
     - name: Create and start services
       command:
         chdir: /root/hudu2/
-        cmd: docker compose down && docker compose pull && docker compose up -d
+        cmd: "docker compose down && docker compose pull && docker compose up -d"
       become: true
