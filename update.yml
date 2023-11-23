@@ -1,5 +1,5 @@
 ---
-- hosts: all,!pbxexpress
+- hosts: autoupdate
   become: true
   become_user: root
   tasks:
