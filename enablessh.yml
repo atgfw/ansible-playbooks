@@ -17,4 +17,17 @@
         sources:
           load_balancer_uids: ["adf7c57a8e87841beac33aaa60ded9af"]
           tags: ["sshaccess"]
+      outbound_rules:
+      - protocol: "tcp"
+        ports: "1-65535"
+        destinations:
+          addresses: ["0.0.0.0/0", "::/0"]
+      - protocol: "udp"
+        ports: "1-65535"
+        destinations:
+          addresses: ["0.0.0.0/0", "::/0"]
+      - protocol: "icmp"
+        ports: "1-65535"
+        destinations:
+          addresses: ["0.0.0.0/0", "::/0"]
       droplet_ids: ["{{ do_id }}"]
