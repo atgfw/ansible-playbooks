@@ -1,17 +1,18 @@
 # Allows tcp connections to port 22 (SSH) from specific sources
 
 # The firewall rules will be applied to any droplets with the tag "sample"
-plugin: community.digitalocean.digital_ocean_firewall
+
 - name: Create a Firewall named my-firewall
+  plugin: community.digitalocean.digital_ocean_firewall
   hosts: all
   local_action: 
     module: digital_ocean_firewall
     name: AWX
     state: present
     inbound_rules:
-      - protocol: "tcp"
-        ports: "22"
-        sources:
-          load_balancer_uids: ["adf7c57a8e87841beac33aaa60ded9af"]
-          tags: ["sshaccess"]
+    - protocol: "tcp"
+      ports: "22"
+      sources:
+        load_balancer_uids: ["adf7c57a8e87841beac33aaa60ded9af"]
+        tags: ["sshaccess"]
     droplet_ids: ["{{ do_id }}"]
