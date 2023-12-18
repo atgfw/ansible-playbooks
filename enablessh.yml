@@ -2,8 +2,8 @@
 
 # The firewall rules will be applied to any droplets with the tag "sample"
 plugin: community.digitalocean.digital_ocean_firewall
-hosts: all
 - name: Create a Firewall named my-firewall
+  hosts: all
   local_action: 
     module: digital_ocean_firewall
     name: AWX
