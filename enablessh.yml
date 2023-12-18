@@ -4,6 +4,7 @@
 
 - name: Allow SSH access from ansible
   hosts: all
+  gather_facts: false
   tasks:
   - name: Create Firewall
     local_action: 
