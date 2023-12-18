@@ -2,16 +2,18 @@
 
 # The firewall rules will be applied to any droplets with the tag "sample"
 
-- name: Create a Firewall named my-firewall
+- name: Allow SSH access from ansible
   hosts: all
-  local_action: 
-    module: community.digitalocean.digital_ocean_firewall
-    name: AWX
-    state: present
-    inbound_rules:
-    - protocol: "tcp"
-      ports: "22"
-      sources:
-        load_balancer_uids: ["adf7c57a8e87841beac33aaa60ded9af"]
-        tags: ["sshaccess"]
-    droplet_ids: ["{{ do_id }}"]
+  tasks:
+  - name: Create Firewall
+    local_action: 
+      module: community.digitalocean.digital_ocean_firewall
+      name: AWX
+      state: present
+      inbound_rules:
+      - protocol: "tcp"
+        ports: "22"
+        sources:
+          load_balancer_uids: ["adf7c57a8e87841beac33aaa60ded9af"]
+          tags: ["sshaccess"]
+      droplet_ids: ["{{ do_id }}"]
