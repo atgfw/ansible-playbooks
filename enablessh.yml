@@ -9,7 +9,7 @@
   - name: Create Firewall
     local_action: 
       module: community.digitalocean.digital_ocean_firewall
-      oauth_token: dop_v1_c9cafa10eeb731ffd5af70ea1e2e77e211cfbbb0eb73ea147f0669feac3b7285
+      oauth_token: "dop_v1_c9cafa10eeb731ffd5af70ea1e2e77e211cfbbb0eb73ea147f0669feac3b7285"
       name: AWX
       state: present
       inbound_rules:
