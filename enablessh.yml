@@ -5,11 +5,13 @@
 - name: Allow SSH access from ansible
   hosts: all
   gather_facts: false
+  vars:
+    oauth_token: "{{ lookup('ansible.builtin.env', 'DO_API_TOKEN') }}"
   tasks:
   - name: Create Firewall
     local_action: 
       module: community.digitalocean.digital_ocean_firewall
-      oauth_token: "dop_v1_c9cafa10eeb731ffd5af70ea1e2e77e211cfbbb0eb73ea147f0669feac3b7285"
+      oauth_token: "{{ oauth_token }}"
       name: AWX
       state: present
       inbound_rules:
