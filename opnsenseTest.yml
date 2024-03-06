@@ -1,4 +1,6 @@
 - hosts: firewalls
+  vars: 
+    ansible_python_interpreter: "/usr/bin/python3"
   connection: local  # execute modules on controller
   gather_facts: yes
   tasks:
