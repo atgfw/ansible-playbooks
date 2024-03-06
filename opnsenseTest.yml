@@ -11,11 +11,47 @@
         api_secret: "{{ api_secret }}"
         ssl_verify: "{{ ssl_verify }}"
   tasks:
-    - name: Example
+    - name: Pull updates
+      ansibleguy.opnsense.system:
+        action: 'update'
+    - name: Start upgrade - will wait until finished
+      ansibleguy.opnsense.system:
+        action: 'upgrade'
+        timeout: 240  # depends on your download speed and firmware-version
+    - name: Install os-firewall
+      ansibleguy.opnsense.package:
+        name: 'os-firewall'
+        action: 'install'
+    - name: Remote Access Alias
       ansibleguy.opnsense.alias:
-        name: 'ANSIBLE_TEST1'
+        name: 'ATGRemoteAccess'
         description: 'just a test'
-        content: '1.1.1.1'
+        content: ['161.35.133.150', '208.103.13.38/30', '173.165.98.241/29', '138.197.62.57']
         state: 'present'
+    - name: Remote Access Rule
+      ansibleguy.opnsense.rule:
+        source_net: 'ATGRemoteAccess'  # host, network, alias or 'any'
+        destination_net: '{{ ansible_host }}'
+        #destination_port: '{{ api_port }}'  # alias not supported, leave unset for 'any'
+        protocol: 'TCP'
+        description: 'Remote Access'
+        match_fields: ['description']
+        # sequence: 1
+        # action: 'pass'
+        # quick: true
+        # interface: 'lan'
+        # direction: 'in'
+        # ip_protocol: 'inet' or 'inet6'
+        # source_invert: false
+        # source_port: ''
+        # destination_invert: false
+        # log: true
+        # gateway: 'LAN_GW'
+        # state: 'present'
+        # enabled: true
+        # uuid: 'a9d85c00-0aa2-4705-b855-96aae16e05d7'  # optionally use uuid to identify existing rules
+        # debug: true
+        # reload: true
+
 
         
