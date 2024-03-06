@@ -43,7 +43,7 @@
         # sequence: 1
         # action: 'pass'
         # quick: true
-        # interface: 'lan'
+        interface: 'wan'
         # direction: 'in'
         # ip_protocol: 'inet' or 'inet6'
         # source_invert: false
