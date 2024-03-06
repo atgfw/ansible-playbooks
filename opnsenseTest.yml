@@ -11,6 +11,9 @@
         api_secret: "{{ api_secret }}"
         ssl_verify: "{{ ssl_verify }}"
   tasks:
+    - name: Run audit
+      ansibleguy.opnsense.system:
+        action: 'audit'
     - name: Pull updates
       ansibleguy.opnsense.system:
         action: 'update'
@@ -25,8 +28,9 @@
     - name: Remote Access Alias
       ansibleguy.opnsense.alias:
         name: 'ATGRemoteAccess'
-        description: 'just a test'
-        content: ['161.35.133.150', '208.103.13.38/30', '173.165.98.241/29', '138.197.62.57']
+        description: 'Remote Access'
+        type: 'network'
+        content: ['161.35.133.150/32', '208.103.13.38/30', '173.165.98.241/29', '138.197.62.57/32']
         state: 'present'
     - name: Remote Access Rule
       ansibleguy.opnsense.rule:
