@@ -2,3 +2,4 @@
 collections:
 
 - name: community.digitalocean
+- name: ansibleguy.opnsense
