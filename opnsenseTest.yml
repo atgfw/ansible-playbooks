@@ -11,16 +11,27 @@
         api_secret: "{{ api_secret }}"
         ssl_verify: "{{ ssl_verify }}"
   tasks:
-    - name: Run audit
-      ansibleguy.opnsense.system:
-        action: 'audit'
-    - name: Pull updates
+    - name: Fetching updates
       ansibleguy.opnsense.system:
         action: 'update'
-    - name: Start upgrade - will wait until finished
+
+    - name: Wait for information to be refreshed
+      ansible.builtin.pause:
+        seconds: 10
+      when: not ansible_check_mode
+
+    - name: Upgrade with wait
       ansibleguy.opnsense.system:
         action: 'upgrade'
-        timeout: 240  # depends on your download speed and firmware-version
+        wait: true
+        timeout: 120
+        poll_interval: 2
+
+    - name: Wait for system to start
+      ansible.builtin.pause:
+        seconds: 10
+      when: not ansible_check_mode
+
     - name: Install os-firewall
       ansibleguy.opnsense.package:
         name: 'os-firewall'
