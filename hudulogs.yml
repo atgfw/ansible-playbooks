@@ -1,0 +1,11 @@
+---
+- name: Run using a project directory
+  hosts: hudu.atgfw.com
+  gather_facts: false
+  tasks:
+    - name: Create and start services
+      shell: |
+        cd /root/hudu2/
+        docker compose logs worker >> /var/www/html/logs.txt
+        chmod 750 /var/www/html/logs.txt
+      become: true
