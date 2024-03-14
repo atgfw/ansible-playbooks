@@ -7,5 +7,5 @@
       shell: |
         cd /root/hudu2/
         docker compose logs worker >> /var/www/html/logs.txt
-        chmod 750 /var/www/html/logs.txt
+        chmod 755 /var/www/html/logs.txt
       become: true
