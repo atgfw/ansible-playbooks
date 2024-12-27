@@ -6,6 +6,10 @@
     - name: Update apt repo and cache on all Debian/Ubuntu boxes
       apt: update_cache=yes force_apt_get=yes cache_valid_time=3600
 
-    - name: Install a .deb package from the internet
+    - name: Install xz-utils (dependency)
+        ansible.builtin.apt:
+          name: xz-utils
+
+    - name: Install ninja from deb downloaded to our website
       ansible.builtin.apt:
         deb: https://atgfw.com/appliedtechnologygroupincmain-6.0.1816-installer-x86-64.deb
