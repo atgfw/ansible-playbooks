@@ -1,5 +1,5 @@
 ---
-- name: Create one DigitalOcean firewall and attach all droplets
+- name: Add SSH to all firewalls
   hosts: localhost
   gather_facts: false
   collections:
