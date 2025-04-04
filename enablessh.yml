@@ -1,5 +1,4 @@
----
-- name: Add SSH to all firewalls
+- name: Add port 22 rule only to firewalls missing it
   hosts: localhost
   gather_facts: false
   collections:
@@ -7,35 +6,44 @@
 
   vars:
     do_token: "{{ lookup('env', 'DO_API_TOKEN') }}"
-    firewall_name: "atg-ssh-firewall"
     ssh_rule:
       protocol: tcp
       port_range: "22"
       source_addresses:
-        - "161.35.133.150/32"
-        - "208.103.13.38/30"
-        - "173.165.98.241/29"
-        - "138.197.62.57/32"
+        - "0.0.0.0/0"
+        - "::/0"
 
   tasks:
+
     - name: Get all DigitalOcean firewalls
       community.digitalocean.digital_ocean_firewall_info:
         oauth_token: "{{ do_token }}"
       register: firewalls_info
 
-    - name: Add SSH rule to each firewall
+    - name: Filter firewalls without SSH rule
+      set_fact:
+        firewalls_needing_ssh: >-
+          {{
+            firewalls_info.data | selectattr("inbound_rules", "defined") | select(
+              lambda fw: (
+                fw.inbound_rules | map(attribute='ports') | list
+                | select(
+                    'match',
+                    '^22$|^22-[0-9]+$|^[0-9]+-22$|^[0-9]+-[0-9]+$'
+                  )
+                | list | length == 0
+              )
+            ) | list
+          }}
+
+    - name: Add SSH rule to firewalls missing it
       community.digitalocean.digital_ocean_firewall:
         oauth_token: "{{ do_token }}"
         state: present
         name: "{{ item.name }}"
-        inbound_rules:
-          - protocol: "{{ ssh_rule.protocol }}"
-            port_range: "{{ ssh_rule.port_range }}"
-            source_addresses: "{{ ssh_rule.source_addresses }}"
-        # Keep the existing outbound rules and droplet assignments
-        preserve_existing_droplets: true
-        preserve_existing_outbound_rules: true
-        preserve_existing_inbound_rules: true
-      loop: "{{ firewalls_info.data|default([]) }}"
+        inbound_rules: "{{ item.inbound_rules + [ssh_rule] }}"
+        outbound_rules: "{{ item.outbound_rules }}"
+        droplet_ids: "{{ item.droplet_ids }}"
+      loop: "{{ firewalls_needing_ssh }}"
       loop_control:
         label: "{{ item.name }}"
