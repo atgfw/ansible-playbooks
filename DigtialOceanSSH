@@ -1,0 +1,39 @@
+---
+- name: Add port 22 rule to all DigitalOcean firewalls
+  hosts: localhost
+  gather_facts: false
+  collections:
+    - community.digitalocean
+
+  vars:
+    do_token: "{{ lookup('env', 'DO_API_TOKEN') }}"
+    ssh_rule:
+      protocol: tcp
+      port_range: "22"
+      source_addresses:
+        - "0.0.0.0/0"
+        - "::/0"
+
+  tasks:
+
+    - name: Get all DigitalOcean firewalls
+      community.digitalocean.digital_ocean_firewall_info:
+        oauth_token: "{{ do_token }}"
+      register: firewalls_info
+
+    - name: Add SSH rule to each firewall
+      community.digitalocean.digital_ocean_firewall:
+        oauth_token: "{{ do_token }}"
+        state: present
+        name: "{{ item.name }}"
+        inbound_rules:
+          - protocol: "{{ ssh_rule.protocol }}"
+            port_range: "{{ ssh_rule.port_range }}"
+            source_addresses: "{{ ssh_rule.source_addresses }}"
+        # Keep the existing outbound rules and droplet assignments
+        preserve_existing_droplets: true
+        preserve_existing_outbound_rules: true
+        preserve_existing_inbound_rules: true
+      loop: "{{ firewalls_info.data|default([]) }}"
+      loop_control:
+        label: "{{ item.name }}"
