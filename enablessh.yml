@@ -18,23 +18,24 @@
         - "138.197.62.57/32"
 
   tasks:
-
-    - name: Get all droplets
-      community.digitalocean.digital_ocean_droplet_info:
+    - name: Get all DigitalOcean firewalls
+      community.digitalocean.digital_ocean_firewall_info:
         oauth_token: "{{ do_token }}"
-      register: droplet_info
+      register: firewalls_info
 
-    - name: Extract droplet IDs
-      set_fact:
-        droplet_ids: "{{ droplet_info.data | map(attribute='id') | list }}"
-
-    - name: Create or update firewall
+    - name: Add SSH rule to each firewall
       community.digitalocean.digital_ocean_firewall:
         oauth_token: "{{ do_token }}"
         state: present
-        name: "{{ firewall_name }}"
+        name: "{{ item.name }}"
         inbound_rules:
           - protocol: "{{ ssh_rule.protocol }}"
             port_range: "{{ ssh_rule.port_range }}"
             source_addresses: "{{ ssh_rule.source_addresses }}"
-        droplet_ids: "{{ droplet_ids }}"
+        # Keep the existing outbound rules and droplet assignments
+        preserve_existing_droplets: true
+        preserve_existing_outbound_rules: true
+        preserve_existing_inbound_rules: true
+      loop: "{{ firewalls_info.data|default([]) }}"
+      loop_control:
+        label: "{{ item.name }}"
