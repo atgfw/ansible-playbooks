@@ -1,36 +1,40 @@
-# Allows tcp connections to port 22 (SSH) from specific sources
-
-# The firewall rules will be applied to any droplets with the tag "sample"
-
-- name: Allow SSH access from ansible
-  hosts: all
+---
+- name: Create one DigitalOcean firewall and attach all droplets
+  hosts: localhost
   gather_facts: false
+  collections:
+    - community.digitalocean
+
   vars:
-    oauth_token: "{{ lookup('ansible.builtin.env', 'DO_API_TOKEN') }}"
+    do_token: "{{ lookup('env', 'DO_API_TOKEN') }}"
+    firewall_name: "atg-ssh-firewall"
+    ssh_rule:
+      protocol: tcp
+      port_range: "22"
+      source_addresses:
+        - "161.35.133.150/32"
+        - "208.103.13.38/30"
+        - "173.165.98.241/29"
+        - "138.197.62.57/32"
+
   tasks:
-  - name: Create Firewall
-    local_action: 
-      module: community.digitalocean.digital_ocean_firewall
-      oauth_token: "{{ oauth_token }}"
-      name: AWX
-      state: present
-      inbound_rules:
-      - protocol: "tcp"
-        ports: "22"
-        sources:
-          load_balancer_uids: ["adf7c57a8e87841beac33aaa60ded9af"]
-          tags: ["sshaccess"]
-      outbound_rules:
-      - protocol: "tcp"
-        ports: "1-65535"
-        destinations:
-          addresses: ["0.0.0.0/0", "::/0"]
-      - protocol: "udp"
-        ports: "1-65535"
-        destinations:
-          addresses: ["0.0.0.0/0", "::/0"]
-      - protocol: "icmp"
-        ports: "1-65535"
-        destinations:
-          addresses: ["0.0.0.0/0", "::/0"]
-      droplet_ids: ["{{ do_id }}"]
+
+    - name: Get all droplets
+      community.digitalocean.digital_ocean_droplet_info:
+        oauth_token: "{{ do_token }}"
+      register: droplet_info
+
+    - name: Extract droplet IDs
+      set_fact:
+        droplet_ids: "{{ droplet_info.data | map(attribute='id') | list }}"
+
+    - name: Create or update firewall
+      community.digitalocean.digital_ocean_firewall:
+        oauth_token: "{{ do_token }}"
+        state: present
+        name: "{{ firewall_name }}"
+        inbound_rules:
+          - protocol: "{{ ssh_rule.protocol }}"
+            port_range: "{{ ssh_rule.port_range }}"
+            source_addresses: "{{ ssh_rule.source_addresses }}"
+        droplet_ids: "{{ droplet_ids }}"
