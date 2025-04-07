@@ -23,44 +23,70 @@
       register: firewalls_info
 
     - name: Identify firewalls missing port 22 rule
+      set_fact:
+        firewalls_missing_ssh: "{{ firewalls_info.data | reject('has_ssh') | list }}"
       vars:
+        # Custom test plugin inlined as Jinja expression
+        has_ssh: >
+          {% macro has_ssh(fw) -%}
+          {{ fw.inbound_rules
+            | selectattr('protocol', 'equalto', 'tcp')
+            | selectattr('ports', 'defined')
+            | selectattr('ports', 'search', '(^22$|^22-[0-9]+$|^[0-9]+-22$|^[0-9]+-[0-9]+$)')
+            | list
+            | length > 0 }}
+          {%- endmacro %}
+          {{ has_ssh }}
+      when: false  # This set_fact fails in AWX with inline macro. We'll do it differently below.
+
+    - name: Build list of firewalls needing SSH
+      set_fact:
         firewalls_missing_ssh: []
+    
+    - name: Filter and collect firewalls missing port 22 rule
       set_fact:
         firewalls_missing_ssh: "{{ firewalls_missing_ssh + [item] }}"
       loop: "{{ firewalls_info.data }}"
       when: >
-        not item.inbound_rules | selectattr('ports', 'defined') |
-        selectattr('protocol', 'equalto', 'tcp') |
+        item.inbound_rules | selectattr('protocol', 'equalto', 'tcp') |
+        selectattr('ports', 'defined') |
         selectattr('ports', 'search', '(^22$|^22-[0-9]+$|^[0-9]+-22$|^[0-9]+-[0-9]+$)') |
-        list | length > 0 is not true
+        list | length == 0
       loop_control:
         label: "{{ item.name }}"
 
-    - name: Normalize and append SSH rule
+    - name: Normalize and add SSH rule
       set_fact:
         normalized_firewalls: "{{ normalized_firewalls | default([]) + [ {
           'name': item.name,
-          'inbound_rules': (
-            item.inbound_rules | map('extract', ['protocol', 'ports', 'sources']) |
-            map('combine', {
-              'port_range': item.ports,
-              'source_addresses': item.sources.addresses
-            }) | list + [ssh_rule]
-          ),
-          'outbound_rules': (
-            item.outbound_rules | map('extract', ['protocol', 'ports', 'destinations']) |
-            map('combine', {
-              'port_range': item.ports,
-              'destination_addresses': item.destinations.addresses
-            }) | list
-          ),
-          'droplet_ids': item.droplet_ids
+          'droplet_ids': item.droplet_ids,
+          'inbound_rules': (item.inbound_rules | map('to_firewall_inbound') | list) + [ssh_rule],
+          'outbound_rules': item.outbound_rules | map('to_firewall_outbound') | list
         } ] }}"
       loop: "{{ firewalls_missing_ssh }}"
       loop_control:
         label: "{{ item.name }}"
+      vars:
+        # Converts a single inbound rule to correct format
+        to_firewall_inbound: >-
+          {{
+            lambda r: {
+              'protocol': r.protocol,
+              'port_range': r.ports,
+              'source_addresses': r.sources.addresses
+            }
+          }}
+        # Converts a single outbound rule to correct format
+        to_firewall_outbound: >-
+          {{
+            lambda r: {
+              'protocol': r.protocol,
+              'port_range': r.ports,
+              'destination_addresses': r.destinations.addresses
+            }
+          }}
 
-    - name: Apply updated firewall config with SSH rule
+    - name: Apply updated firewall config
       community.digitalocean.digital_ocean_firewall:
         oauth_token: "{{ do_token }}"
         state: present
@@ -69,10 +95,5 @@
         outbound_rules: "{{ item.outbound_rules }}"
         droplet_ids: "{{ item.droplet_ids }}"
       loop: "{{ normalized_firewalls }}"
-      loop_control:
-        label: "{{ item.name }}"
-
-        droplet_ids: "{{ item.droplet_ids }}"
-      loop: "{{ firewalls_missing_ssh }}"
       loop_control:
         label: "{{ item.name }}"
