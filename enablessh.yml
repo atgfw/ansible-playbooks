@@ -44,16 +44,16 @@
         inbound_rules: >-
           {{
             item.inbound_rules | map('extract', ['protocol', 'ports', 'sources']) | map('combine', {
-              'port_range': attribute('ports'),
-              'source_addresses': attribute('sources')['addresses']
-            }) | map('dict2items') | map('items2dict') | list + [ssh_rule]
+              'port_range': item.ports,
+              'source_addresses': item.sources.addresses
+            }) | list + [ssh_rule]
           }}
-        outbound_rules: >-
+          outbound_rules: >-
           {{
             item.outbound_rules | map('extract', ['protocol', 'ports', 'destinations']) | map('combine', {
-              'port_range': attribute('ports'),
-              'destination_addresses': attribute('destinations')['addresses']
-            }) | map('dict2items') | map('items2dict') | list
+              'port_range': item.ports,
+              'destination_addresses': item.destinations.addresses
+            }) | list
           }}
         droplet_ids: "{{ item.droplet_ids }}"
       loop: "{{ firewalls_missing_ssh }}"
