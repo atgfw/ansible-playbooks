@@ -38,40 +38,43 @@
       loop_control:
         label: "{{ item.name }}"
 
-    - name: Normalize and build updated firewalls list
-      vars:
-        new_inbound: []
-        new_outbound: []
-        norm_inbound: []
-        norm_outbound: []
+    - name: Initialize normalized firewall list
       set_fact:
-        normalized_firewalls: "{{ normalized_firewalls | default([]) + [ {
+        normalized_firewalls: []
+
+    - name: Normalize and append SSH rule
+      set_fact:
+        normalized_firewalls: "{{ normalized_firewalls + [ {
           'name': item.name,
           'droplet_ids': item.droplet_ids,
-          'inbound_rules': norm_inbound + [ssh_rule],
-          'outbound_rules': norm_outbound
+          'inbound_rules': (
+            item.inbound_rules | map('extract', ['protocol', 'ports', 'sources']) | map('community_do_normalize_inbound') | list
+          ) + [ssh_rule],
+          'outbound_rules': (
+            item.outbound_rules | map('extract', ['protocol', 'ports', 'destinations']) | map('community_do_normalize_outbound') | list
+          )
         } ] }}"
       loop: "{{ firewalls_missing_ssh }}"
       loop_control:
         label: "{{ item.name }}"
       vars:
-        norm_inbound: >-
+        community_do_normalize_inbound: >-
           {{
-            item.inbound_rules | map('extract', ['protocol', 'ports', 'sources']) | map('combine', {
-              'protocol': item.protocol,
-              'port_range': item.ports,
-              'source_addresses': (item.sources.addresses if (item.sources.addresses is defined) else []),
-              'source_droplet_ids': (item.sources.droplet_ids if (item.sources.droplet_ids is defined) else [])
-            }) | list
+            lambda r: {
+              'protocol': r.protocol,
+              'port_range': r.ports,
+              'source_addresses': r.sources.addresses if r.sources is defined and r.sources.addresses is defined else [],
+              'source_droplet_ids': r.sources.droplet_ids if r.sources is defined and r.sources.droplet_ids is defined else []
+            }
           }}
-        norm_outbound: >-
+        community_do_normalize_outbound: >-
           {{
-            item.outbound_rules | map('extract', ['protocol', 'ports', 'destinations']) | map('combine', {
-              'protocol': item.protocol,
-              'port_range': item.ports,
-              'destination_addresses': (item.destinations.addresses if (item.destinations.addresses is defined) else []),
-              'destination_droplet_ids': (item.destinations.droplet_ids if (item.destinations.droplet_ids is defined) else [])
-            }) | list
+            lambda r: {
+              'protocol': r.protocol,
+              'port_range': r.ports,
+              'destination_addresses': r.destinations.addresses if r.destinations is defined and r.destinations.addresses is defined else [],
+              'destination_droplet_ids': r.destinations.droplet_ids if r.destinations is defined and r.destinations.droplet_ids is defined else []
+            }
           }}
 
     - name: Apply updated firewall config
@@ -85,3 +88,4 @@
       loop: "{{ normalized_firewalls }}"
       loop_control:
         label: "{{ item.name }}"
+
