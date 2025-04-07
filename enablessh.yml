@@ -38,44 +38,60 @@
       loop_control:
         label: "{{ item.name }}"
 
-    - name: Normalize and add SSH rule to firewalls
+    - name: Initialize normalized firewall list
       set_fact:
-        normalized_firewalls: "{{ normalized_firewalls | default([]) + [ {
-          'name': item.name,
-          'droplet_ids': item.droplet_ids,
-          'inbound_rules': (
-            item.inbound_rules | map('extract', ['protocol', 'ports', 'sources']) |
-            map('community.digitalocean.firewall_format_inbound') | list + [ssh_rule]
-          ),
-          'outbound_rules': (
-            item.outbound_rules | map('extract', ['protocol', 'ports', 'destinations']) |
-            map('community.digitalocean.firewall_format_outbound') | list
-          )
-        } ] }}"
+        normalized_firewalls: []
+
+    - name: Normalize and append SSH rule
+      vars:
+        new_inbound: []
+        new_outbound: []
+      block:
+        - name: Normalize inbound rules
+          set_fact:
+            new_inbound: >-
+              {{
+                item.inbound_rules | map('extract', ['protocol', 'ports', 'sources']) | map('community_do_normalize_inbound') | list
+              }}
+          vars:
+            community_do_normalize_inbound: >-
+              {{
+                lambda rule: {
+                  'protocol': rule.protocol,
+                  'port_range': rule.ports,
+                  'source_addresses': rule.sources.addresses if (rule.sources.addresses is defined) else [],
+                  'source_droplet_ids': rule.sources.droplet_ids if (rule.sources.droplet_ids is defined) else []
+                }
+              }}
+
+        - name: Normalize outbound rules
+          set_fact:
+            new_outbound: >-
+              {{
+                item.outbound_rules | map('extract', ['protocol', 'ports', 'destinations']) | map('community_do_normalize_outbound') | list
+              }}
+          vars:
+            community_do_normalize_outbound: >-
+              {{
+                lambda rule: {
+                  'protocol': rule.protocol,
+                  'port_range': rule.ports,
+                  'destination_addresses': rule.destinations.addresses if (rule.destinations.addresses is defined) else [],
+                  'destination_droplet_ids': rule.destinations.droplet_ids if (rule.destinations.droplet_ids is defined) else []
+                }
+              }}
+
+        - name: Add to normalized list
+          set_fact:
+            normalized_firewalls: "{{ normalized_firewalls + [ {
+              'name': item.name,
+              'droplet_ids': item.droplet_ids,
+              'inbound_rules': new_inbound + [ssh_rule],
+              'outbound_rules': new_outbound
+            } ] }}"
       loop: "{{ firewalls_missing_ssh }}"
       loop_control:
         label: "{{ item.name }}"
-      vars:
-        community:
-          digitalocean:
-            firewall_format_inbound: >-
-              {{
-                lambda r: {
-                  'protocol': r.protocol,
-                  'port_range': r.ports,
-                  'source_addresses': r.sources.addresses if 'addresses' in r.sources else [],
-                  'source_droplet_ids': r.sources.droplet_ids if 'droplet_ids' in r.sources else []
-                }
-              }}
-            firewall_format_outbound: >-
-              {{
-                lambda r: {
-                  'protocol': r.protocol,
-                  'port_range': r.ports,
-                  'destination_addresses': r.destinations.addresses if 'addresses' in r.destinations else [],
-                  'destination_droplet_ids': r.destinations.droplet_ids if 'droplet_ids' in r.destinations else []
-                }
-              }}
 
     - name: Apply updated firewall config
       community.digitalocean.digital_ocean_firewall:
