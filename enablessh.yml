@@ -30,6 +30,7 @@
       loop: "{{ firewalls_info.data }}"
       when: >
         not item.inbound_rules | selectattr('ports', 'defined') |
+        selectattr('protocol', 'equalto', 'tcp') |
         selectattr('ports', 'search', '(^22$|^22-[0-9]+$|^[0-9]+-22$|^[0-9]+-[0-9]+$)') |
         list | length > 0 is not true
       loop_control:
@@ -40,8 +41,20 @@
         oauth_token: "{{ do_token }}"
         state: present
         name: "{{ item.name }}"
-        inbound_rules: "{{ item.inbound_rules + [ssh_rule] }}"
-        outbound_rules: "{{ item.outbound_rules }}"
+        inbound_rules: >-
+          {{
+            item.inbound_rules | map('extract', ['protocol', 'ports', 'sources']) | map('combine', {
+              'port_range': attribute('ports'),
+              'source_addresses': attribute('sources')['addresses']
+            }) | map('dict2items') | map('items2dict') | list + [ssh_rule]
+          }}
+        outbound_rules: >-
+          {{
+            item.outbound_rules | map('extract', ['protocol', 'ports', 'destinations']) | map('combine', {
+              'port_range': attribute('ports'),
+              'destination_addresses': attribute('destinations')['addresses']
+            }) | map('dict2items') | map('items2dict') | list
+          }}
         droplet_ids: "{{ item.droplet_ids }}"
       loop: "{{ firewalls_missing_ssh }}"
       loop_control:
