@@ -37,55 +37,56 @@
             ) | list
           }}
 
-    - name: Normalize firewalls and append SSH rule
+    - name: Initialize normalized firewall list
       set_fact:
         normalized_firewalls: []
-    
-    - name: Build updated firewall configurations
-      vars:
-        new_inbound: []
-        new_outbound: []
-      block:
-        - name: Normalize inbound rules
-          set_fact:
-            new_inbound: >-
-              {% set result = [] %}
-              {% for rule in item.inbound_rules %}
-                {% set src = rule.sources if rule.sources is defined else {} %}
-                {% set r = {
-                  'protocol': rule.protocol,
-                  'port_range': rule.ports,
-                  'source_addresses': src.addresses if src.addresses is defined else [],
-                  'source_droplet_ids': src.droplet_ids if src.droplet_ids is defined else []
-                } %}
-                {% set _ = result.append(r) %}
-              {% endfor %}
-              {{ result + [ssh_rule] }}
 
-        - name: Normalize outbound rules
-          set_fact:
-            new_outbound: >-
-              {% set result = [] %}
-              {% for rule in item.outbound_rules %}
-                {% set dst = rule.destinations if rule.destinations is defined else {} %}
-                {% set r = {
-                  'protocol': rule.protocol,
-                  'port_range': rule.ports,
-                  'destination_addresses': dst.addresses if dst.addresses is defined else [],
-                  'destination_droplet_ids': dst.droplet_ids if dst.droplet_ids is defined else []
-                } %}
-                {% set _ = result.append(r) %}
-              {% endfor %}
-              {{ result }}
+    - name: Normalize inbound rules
+      set_fact:
+        new_inbound: >-
+          {% set result = [] %}
+          {% for rule in item.inbound_rules %}
+            {% set src = rule.sources if rule.sources is defined else {} %}
+            {% set r = {
+              'protocol': rule.protocol,
+              'port_range': rule.ports,
+              'source_addresses': src.addresses if src.addresses is defined else [],
+              'source_droplet_ids': src.droplet_ids if src.droplet_ids is defined else []
+            } %}
+            {% set _ = result.append(r) %}
+          {% endfor %}
+          {{ result + [ssh_rule] }}
+      loop: "{{ firewalls_missing_ssh }}"
+      loop_control:
+        label: "{{ item.name }}"
 
-        - name: Add to final update list
-          set_fact:
-            normalized_firewalls: "{{ normalized_firewalls + [ {
-              'name': item.name,
-              'droplet_ids': item.droplet_ids,
-              'inbound_rules': new_inbound,
-              'outbound_rules': new_outbound
-            } ] }}"
+    - name: Normalize outbound rules
+      set_fact:
+        new_outbound: >-
+          {% set result = [] %}
+          {% for rule in item.outbound_rules %}
+            {% set dst = rule.destinations if rule.destinations is defined else {} %}
+            {% set r = {
+              'protocol': rule.protocol,
+              'port_range': rule.ports,
+              'destination_addresses': dst.addresses if dst.addresses is defined else [],
+              'destination_droplet_ids': dst.droplet_ids if dst.droplet_ids is defined else []
+            } %}
+            {% set _ = result.append(r) %}
+          {% endfor %}
+          {{ result }}
+      loop: "{{ firewalls_missing_ssh }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Append normalized firewall to update list
+      set_fact:
+        normalized_firewalls: "{{ normalized_firewalls + [ {
+          'name': item.name,
+          'droplet_ids': item.droplet_ids,
+          'inbound_rules': new_inbound,
+          'outbound_rules': new_outbound
+        } ] }}"
       loop: "{{ firewalls_missing_ssh }}"
       loop_control:
         label: "{{ item.name }}"
