@@ -15,7 +15,7 @@
         - '173.165.98.241/29'
         - '138.197.62.57/32'
 
- tasks:
+  tasks:
 
     - name: Get all DigitalOcean firewalls
       community.digitalocean.digital_ocean_firewall_info:
