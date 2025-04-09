@@ -44,7 +44,3 @@
       loop_control:
         loop_var: "firewall"
         label: "{{ firewall.name }}"
-        droplet_ids: "{{ item.droplet_ids }}"
-      loop: "{{ normalized_firewalls }}"
-      loop_control:
-        label: "{{ item.name }}"
