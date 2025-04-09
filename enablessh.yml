@@ -38,63 +38,59 @@
       loop_control:
         label: "{{ item.name }}"
 
-    - name: Normalize inbound rules and add SSH rule
+    - name: Initialize normalized firewall list
       set_fact:
-        new_inbound: >-
-          {% set result = [] %}
-          {% for rule in item.inbound_rules %}
-            {% set src = rule.sources if rule.sources is defined else {} %}
-            {% set r = {
-              'protocol': rule.protocol,
-              'port_range': rule.ports,
-              'source_addresses': src.addresses if src.addresses is defined else [],
-              'source_droplet_ids': src.droplet_ids if src.droplet_ids is defined else []
-            } %}
-            {% set _ = result.append(r) %}
-          {% endfor %}
-          {{ result + [ssh_rule] }}
+        normalized_firewalls: []
+
+    - name: Normalize and append SSH rule (build structure safely)
+      vars:
+        inbound_rules_normalized: []
+        outbound_rules_normalized: []
+      block:
+
+        - name: Normalize inbound rules
+          set_fact:
+            inbound_rules_normalized: >-
+              {% set result = [] %}
+              {% for rule in item.inbound_rules %}
+                {% set src = rule.sources if rule.sources is defined else {} %}
+                {% set r = {
+                  'protocol': rule.protocol,
+                  'port_range': rule.ports,
+                  'source_addresses': src.addresses if src.addresses is defined else [],
+                  'source_droplet_ids': src.droplet_ids if src.droplet_ids is defined else []
+                } %}
+                {% set _ = result.append(r) %}
+              {% endfor %}
+              {{ result + [ssh_rule] }}
+
+        - name: Normalize outbound rules
+          set_fact:
+            outbound_rules_normalized: >-
+              {% set result = [] %}
+              {% for rule in item.outbound_rules %}
+                {% set dst = rule.destinations if rule.destinations is defined else {} %}
+                {% set r = {
+                  'protocol': rule.protocol,
+                  'port_range': rule.ports,
+                  'destination_addresses': dst.addresses if dst.addresses is defined else [],
+                  'destination_droplet_ids': dst.droplet_ids if dst.droplet_ids is defined else []
+                } %}
+                {% set _ = result.append(r) %}
+              {% endfor %}
+              {{ result }}
+
+        - name: Add updated firewall dict to final list
+          set_fact:
+            normalized_firewalls: "{{ normalized_firewalls + [ {
+              'name': item.name,
+              'droplet_ids': item.droplet_ids,
+              'inbound_rules': inbound_rules_normalized,
+              'outbound_rules': outbound_rules_normalized
+            } ] }}"
       loop: "{{ firewalls_missing_ssh }}"
       loop_control:
         label: "{{ item.name }}"
-      register: inbound_result
-
-    - name: Normalize outbound rules
-      set_fact:
-        new_outbound: >-
-          {% set result = [] %}
-          {% for rule in item.outbound_rules %}
-            {% set dst = rule.destinations if rule.destinations is defined else {} %}
-            {% set r = {
-              'protocol': rule.protocol,
-              'port_range': rule.ports,
-              'destination_addresses': dst.addresses if dst.addresses is defined else [],
-              'destination_droplet_ids': dst.droplet_ids if dst.droplet_ids is defined else []
-            } %}
-            {% set _ = result.append(r) %}
-          {% endfor %}
-          {{ result }}
-      loop: "{{ firewalls_missing_ssh }}"
-      loop_control:
-        label: "{{ item.name }}"
-      register: outbound_result
-
-    - name: Build final list of firewalls to update
-      set_fact:
-        normalized_firewalls: >-
-          {% set result = [] %}
-          {% for i in range(firewalls_missing_ssh | length) %}
-            {% set fw = firewalls_missing_ssh[i] %}
-            {% set inbound = inbound_result.results[i].ansible_facts.new_inbound %}
-            {% set outbound = outbound_result.results[i].ansible_facts.new_outbound %}
-            {% set r = {
-              'name': fw.name,
-              'droplet_ids': fw.droplet_ids,
-              'inbound_rules': inbound,
-              'outbound_rules': outbound
-            } %}
-            {% set _ = result.append(r) %}
-          {% endfor %}
-          {{ result }}
 
     - name: Apply updated firewall config
       community.digitalocean.digital_ocean_firewall:
