@@ -38,10 +38,6 @@
       loop_control:
         label: "{{ item.name }}"
 
-    - name: Initialize normalized firewall list
-      set_fact:
-        normalized_firewalls: []
-
     - name: Normalize inbound rules and add SSH rule
       set_fact:
         new_inbound: >-
@@ -82,17 +78,23 @@
         label: "{{ item.name }}"
       register: outbound_result
 
-    - name: Build full updated firewall list
+    - name: Build final list of firewalls to update
       set_fact:
-        normalized_firewalls: "{{ normalized_firewalls + [ {
-          'name': item.0.name,
-          'droplet_ids': item.0.droplet_ids,
-          'inbound_rules': item.1,
-          'outbound_rules': item.2
-        } ] }}"
-      loop: "{{ query('zip', firewalls_missing_ssh, inbound_result.results | map(attribute='ansible_facts.new_inbound') | list, outbound_result.results | map(attribute='ansible_facts.new_outbound') | list) }}"
-      loop_control:
-        label: "{{ item.0.name }}"
+        normalized_firewalls: >-
+          {% set result = [] %}
+          {% for i in range(firewalls_missing_ssh | length) %}
+            {% set fw = firewalls_missing_ssh[i] %}
+            {% set inbound = inbound_result.results[i].ansible_facts.new_inbound %}
+            {% set outbound = outbound_result.results[i].ansible_facts.new_outbound %}
+            {% set r = {
+              'name': fw.name,
+              'droplet_ids': fw.droplet_ids,
+              'inbound_rules': inbound,
+              'outbound_rules': outbound
+            } %}
+            {% set _ = result.append(r) %}
+          {% endfor %}
+          {{ result }}
 
     - name: Apply updated firewall config
       community.digitalocean.digital_ocean_firewall:
@@ -105,4 +107,3 @@
       loop: "{{ normalized_firewalls }}"
       loop_control:
         label: "{{ item.name }}"
-
