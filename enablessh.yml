@@ -88,17 +88,18 @@
           {% set result = [] %}
           {% for i in range(firewalls_missing_ssh | length) %}
             {% set fw = firewalls_missing_ssh[i] %}
-            {% set inbound = inbound_result.results[i].ansible_facts.inbound_rules_normalized %}
-            {% set outbound = outbound_result.results[i].ansible_facts.outbound_rules_normalized %}
+            {% set inbound_raw = inbound_result.results[i].ansible_facts.inbound_rules_normalized %}
+            {% set outbound_raw = outbound_result.results[i].ansible_facts.outbound_rules_normalized %}
             {% set r = {
               'name': fw.name,
               'droplet_ids': fw.droplet_ids,
-              'inbound_rules': inbound,
-              'outbound_rules': outbound
+              'inbound_rules': inbound_raw | from_yaml,
+              'outbound_rules': outbound_raw | from_yaml
             } %}
             {% set _ = result.append(r) %}
           {% endfor %}
           {{ result }}
+
 
     - name: Apply updated firewall config
       community.digitalocean.digital_ocean_firewall:
