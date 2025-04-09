@@ -15,7 +15,7 @@
         - '173.165.98.241/29'
         - '138.197.62.57/32'
 
-  tasks:
+ tasks:
 
     - name: Get all DigitalOcean firewalls
       community.digitalocean.digital_ocean_firewall_info:
@@ -26,7 +26,7 @@
       set_fact:
         firewalls_missing_ssh: []
 
-    - name: Check each firewall for missing SSH and collect
+    - name: Add firewalls that don’t allow port 22 to list
       set_fact:
         firewalls_missing_ssh: "{{ firewalls_missing_ssh + [item] }}"
       loop: "{{ firewalls_info.data }}"
@@ -38,11 +38,7 @@
       loop_control:
         label: "{{ item.name }}"
 
-    - name: Initialize normalized firewall list
-      set_fact:
-        normalized_firewalls: []
-
-    - name: Normalize inbound rules and add SSH
+    - name: Normalize inbound rules + add SSH rule
       set_fact:
         inbound_rules_normalized: >-
           {% set result = [] %}
@@ -82,26 +78,25 @@
         label: "{{ item.name }}"
       register: outbound_result
 
-    - name: Build final list of firewalls to update
+    - name: Initialize normalized firewall list
       set_fact:
-        normalized_firewalls: >-
-          {% set result = [] %}
-          {% for i in range(firewalls_missing_ssh | length) %}
-            {% set fw = firewalls_missing_ssh[i] %}
-            {% set inbound_raw = inbound_result.results[i].ansible_facts.inbound_rules_normalized %}
-            {% set outbound_raw = outbound_result.results[i].ansible_facts.outbound_rules_normalized %}
-            {% set r = {
-              'name': fw.name,
-              'droplet_ids': fw.droplet_ids,
-              'inbound_rules': inbound_raw | from_yaml,
-              'outbound_rules': outbound_raw | from_yaml
-            } %}
-            {% set _ = result.append(r) %}
-          {% endfor %}
-          {{ result }}
+        normalized_firewalls: []
 
+    - name: Combine all normalized data into final firewall config list
+      set_fact:
+        normalized_firewalls: "{{ normalized_firewalls + [ {
+          'name': firewalls_missing_ssh[item].name,
+          'droplet_ids': firewalls_missing_ssh[item].droplet_ids,
+          'inbound_rules': inbound_result.results[item].ansible_facts.inbound_rules_normalized | from_yaml,
+          'outbound_rules': outbound_result.results[item].ansible_facts.outbound_rules_normalized | from_yaml
+        } ] }}"
+      loop: "{{ range(0, firewalls_missing_ssh | length) | list }}"
+      loop_control:
+        label: "{{ firewalls_missing_ssh[item].name }}"
+      vars:
+        item: "{{ item }}"
 
-    - name: Apply updated firewall config
+    - name: Apply updated firewall configs with SSH rule
       community.digitalocean.digital_ocean_firewall:
         oauth_token: "{{ do_token }}"
         state: present
