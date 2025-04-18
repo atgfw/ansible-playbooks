@@ -1,7 +1,7 @@
 ---
-# Playbook Name: tag_3cx_firewall_droplets.yml
+# Playbook Name: tag_3CX_firewall_droplets.yml
 # Description: Finds DigitalOcean Droplets associated with firewalls
-#              whose names start with '3cx' and adds the 'atgssh' tag to them.
+#              whose names start with '3CX' and adds the 'atgssh' tag to them.
 # Requirements:
 #   - Ansible installed
 #   - community.digitalocean collection installed (ansible-galaxy collection install community.digitalocean)
@@ -9,19 +9,19 @@
 #   - DigitalOcean API Token set as DO_API_TOKEN environment variable
 # Usage:
 #   export DO_API_TOKEN="YOUR_DO_API_TOKEN"
-#   ansible-playbook tag_3cx_firewall_droplets.yml
+#   ansible-playbook tag_3CX_firewall_droplets.yml
 #
 # Change History:
 #   - v1.1: Added 'default([])' filter to prevent errors if 'firewall_data.firewalls' is undefined.
 
-- name: Tag Droplets associated with '3cx' firewalls
+- name: Tag Droplets associated with '3CX' firewalls
   hosts: localhost # Run locally on the control node
   gather_facts: no # No need to gather facts about the control node
   connection: local # Use local connection for API calls
 
   vars:
     # Prefix to search for in firewall names
-    firewall_prefix: "3cx"
+    firewall_prefix: "3CX"
     # Tag to add to the identified droplets
     tag_to_add: "atgssh"
     # Retrieve the DigitalOcean API token from an environment variable
