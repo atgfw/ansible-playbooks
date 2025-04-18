@@ -1,18 +1,12 @@
 ---
 # Playbook Name: tag_3CX_firewall_droplets.yml
-# Description : Tag every Droplet attached to a DigitalOcean firewall
-#               whose name begins with “3CX”; the tag applied is “atgssh”.
+# Purpose      : Ensure every Droplet protected by a “3CX…” firewall
+#                (whether attached directly or by tag) has the tag “atgssh”.
 #
 # Prerequisites
-#   • Ansible (core ≥2.14)
 #   • community.digitalocean collection
-#     (ansible-galaxy collection install community.digitalocean)
-#   • requests Python library
-#   • Environment variable DO_API_TOKEN set with a valid DO API token
-#
-# Usage
-#   export DO_API_TOKEN="your‑token‑value"
-#   ansible-playbook tag_3CX_firewall_droplets.yml
+#   • Python ‘requests’ library
+#   • export DO_API_TOKEN="your‑token‑here"
 
 - name: Tag Droplets behind “3CX” firewalls
   hosts: localhost
@@ -20,63 +14,99 @@
   gather_facts: false
 
   vars:
-    firewall_prefix: "3CX"   # firewalls whose names start with this string
-    tag_to_add: "atgssh"     # tag to apply to the Droplets
+    firewall_prefix: "3CX"
+    tag_to_add: "atgssh"
     do_api_token: "{{ lookup('env', 'DO_API_TOKEN') }}"
 
   tasks:
-  # ---------------------------------------------------------------------------
+  # -----------------------------------------------------------------------
   # Pre‑flight
-  # ---------------------------------------------------------------------------
-  - name: Abort if DigitalOcean API token is missing
+  # -----------------------------------------------------------------------
+  - name: Abort if API token is missing
     ansible.builtin.fail:
-      msg: |
-        DigitalOcean API token not found.  Export DO_API_TOKEN before running:
+      msg: >
+        DigitalOcean API token not found.
+        Export DO_API_TOKEN before running:
           export DO_API_TOKEN="<your‑token>"
     when: do_api_token | default('') | length == 0
     run_once: true
 
-  # ---------------------------------------------------------------------------
-  # Gather firewall information
-  # ---------------------------------------------------------------------------
-  - name: Retrieve all DigitalOcean firewalls
+  # -----------------------------------------------------------------------
+  # Gather account data
+  # -----------------------------------------------------------------------
+  - name: Get firewalls
     community.digitalocean.digital_ocean_firewall_info:
       oauth_token: "{{ do_api_token }}"
     register: firewall_data
     changed_when: false
     run_once: true
 
-  # ---------------------------------------------------------------------------
-  # Build list of target Droplet IDs
-  # ---------------------------------------------------------------------------
-  - name: Collect Droplet IDs from firewalls whose name matches the prefix
+  - name: Get all droplets
+    community.digitalocean.digital_ocean_droplet_info:
+      oauth_token: "{{ do_api_token }}"
+    register: droplet_data
+    changed_when: false
+    run_once: true
+
+  # -----------------------------------------------------------------------
+  # Build helper collections
+  # -----------------------------------------------------------------------
+  - name: Keep only firewalls whose name starts with the prefix
     ansible.builtin.set_fact:
-      target_droplet_ids: >-
+      matched_firewalls: >-
         {{
-          (firewall_data.data | default([]))
-          | selectattr('name', 'match', '^' + firewall_prefix + '.*')
-          | map(attribute='droplet_ids')
-          | sum(start=[])
-          | unique
+          firewall_data.data
+          | selectattr('name', 'match', '^' ~ firewall_prefix ~ '.*')
+          | list
         }}
     run_once: true
 
-  # ---------------------------------------------------------------------------
-  # Tag each Droplet (module is idempotent and will create tag object if needed)
-  # ---------------------------------------------------------------------------
+  - name: Droplet IDs attached directly to those firewalls
+    ansible.builtin.set_fact:
+      direct_ids: "{{ matched_firewalls | map(attribute='droplet_ids') | sum(start=[]) | unique }}"
+    run_once: true
+
+  - name: Tags used by those firewalls
+    ansible.builtin.set_fact:
+      firewall_tags: "{{ matched_firewalls | map(attribute='tags') | sum(start=[]) | unique }}"
+    run_once: true
+
+  # -----------------------------------------------------------------------
+  # Resolve tags → Droplet IDs
+  # -----------------------------------------------------------------------
+  - name: Start the final list with the direct‑attachment IDs
+    ansible.builtin.set_fact:
+      target_droplet_ids: "{{ direct_ids }}"
+    run_once: true
+
+  - name: Add Droplet IDs for each firewall tag
+    vars:
+      query: "[?contains(tags, `{{ item }}`)].id"
+      ids_for_tag: "{{ (droplet_data.data | json_query(query)) | default([]) }}"
+    ansible.builtin.set_fact:
+      target_droplet_ids: "{{ (target_droplet_ids + ids_for_tag) | unique }}"
+    loop: "{{ firewall_tags }}"
+    loop_control:
+      label: "{{ item }}"
+    when: firewall_tags | length > 0
+    run_once: true
+
+  # -----------------------------------------------------------------------
+  # Apply the tag (module will also create the tag object if missing)
+  # -----------------------------------------------------------------------
   - name: Apply '{{ tag_to_add }}' tag to each target Droplet
     community.digitalocean.digital_ocean_tag:
       oauth_token: "{{ do_api_token }}"
       name: "{{ tag_to_add }}"
-      resource_id: "{{ item | string }}"   # ensure ID is passed as a string
+      resource_id: "{{ item | string }}"
       resource_type: droplet
       state: present
     loop: "{{ target_droplet_ids }}"
     when: target_droplet_ids | length > 0
 
-  # ---------------------------------------------------------------------------
+  # -----------------------------------------------------------------------
   # Report
-  # ---------------------------------------------------------------------------
+  # -----------------------------------------------------------------------
   - name: Summary
     ansible.builtin.debug:
       msg: >-
