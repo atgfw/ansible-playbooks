@@ -1,46 +1,67 @@
 ---
-- name: Add SSH rule to DigitalOcean firewalls that lack it
+- name: Tag Droplets associated with '3cx' firewalls
   hosts: localhost
-  gather_facts: false
-  collections:
-    - community.digitalocean
-
+  gather_facts: no
+  connection: local
   vars:
-    do_token: "{{ lookup('env', 'DO_API_TOKEN') }}"
-    ssh_rule:
-      protocol: tcp
-      port_range: "22"
-      source_addresses:
-        - '161.35.133.150/32'
-        - '208.103.13.38/30'
-        - '173.165.98.241/29'
-        - '138.197.62.57/32'
+    firewall_prefix: "3cx"
+    tag_to_add: "atgssh"
+    # Ensure DO_API_TOKEN environment variable is set before running
+    # Or replace lookup with your token (less secure): do_api_token: "YOUR_DO_API_TOKEN"
+    do_api_token: "{{ lookup('env', 'DO_API_TOKEN') }}"
 
   tasks:
+    - name: Fail if DigitalOcean API token is not provided
+      ansible.builtin.fail:
+        msg: "DigitalOcean API token not found. Please set the DO_API_TOKEN environment variable."
+      when: do_api_token is not defined or do_api_token == ""
+
     - name: Get all DigitalOcean firewalls
       community.digitalocean.digital_ocean_firewall_info:
-        oauth_token: "{{ do_token }}"
-      register: firewalls_info
+        oauth_token: "{{ do_api_token }}"
+      register: firewall_data
+      changed_when: false
 
-    - name: Initialize list of firewalls missing SSH
-      set_fact:
-        firewalls_missing_ssh: []
+    - name: Debug - Show raw firewall data (optional)
+      ansible.builtin.debug:
+        var: firewall_data
+      when: false # Set to true for debugging
 
-    - name: Add firewalls that don't allow port 22 to list
-      set_fact:
-        firewalls_missing_ssh: "{{ firewalls_missing_ssh + [item] }}"
-      loop: "{{ firewalls_info.data }}"
-      when: >
-        item.inbound_rules | selectattr('protocol', 'equalto', 'tcp') |
-        selectattr('ports', 'defined') |
-        selectattr('ports', 'search', '(^22$|^22-[0-9]+$|^[0-9]+-22$|^[0-9]+-[0-9]+$)') |
-        list | length == 0
-      loop_control:
-        label: "{{ item.name }}"
+    - name: Identify Droplet IDs associated with firewalls starting with '{{ firewall_prefix }}'
+      ansible.builtin.set_fact:
+        target_droplet_ids: "{{ firewall_data.firewalls | selectattr('name', 'match', '^' + firewall_prefix + '.*') | map(attribute='droplet_ids') | sum(start=[]) | unique }}"
+      # Explanation of the filter chain:
+      # 1. selectattr('name', 'match', '^' + firewall_prefix + '.*'): Filters the list of firewalls, keeping only those whose 'name' attribute starts with the value of firewall_prefix.
+      # 2. map(attribute='droplet_ids'): From the filtered firewalls, extracts the 'droplet_ids' list for each. This results in a list of lists (e.g., [[123, 456], [789], []]).
+      # 3. sum(start=[]): Flattens the list of lists into a single list (e.g., [123, 456, 789]). The 'start=[]' is crucial for flattening.
+      # 4. unique: Removes duplicate Droplet IDs from the flattened list.
 
-    - name: Process each firewall needing SSH
-      include_tasks: process_firewall.yml
-      loop: "{{ firewalls_missing_ssh }}"
-      loop_control:
-        loop_var: "firewall"
-        label: "{{ firewall.name }}"
+    - name: Debug - Show target Droplet IDs (optional)
+      ansible.builtin.debug:
+        var: target_droplet_ids
+      when: false # Set to true for debugging
+
+    - name: Ensure '{{ tag_to_add }}' tag exists
+      community.digitalocean.digital_ocean_tag:
+        oauth_token: "{{ do_api_token }}"
+        name: "{{ tag_to_add }}"
+        state: present
+      register: tag_info
+
+    - name: Add '{{ tag_to_add }}' tag to identified Droplets
+      community.digitalocean.digital_ocean_tag:
+        oauth_token: "{{ do_api_token }}"
+        name: "{{ tag_to_add }}"
+        resource_id: "{{ item }}"
+        resource_type: "droplet"
+        state: present
+      loop: "{{ target_droplet_ids }}"
+      when: target_droplet_ids | length > 0
+      # This task iterates through the list of unique Droplet IDs found earlier
+      # and applies the specified tag to each one.
+      # The digital_ocean_tag module is idempotent; it won't make changes
+      # if the tag is already applied to the droplet.
+
+    - name: Print summary message
+      ansible.builtin.debug:
+        msg: "Checked firewalls starting with '{{ firewall_prefix }}'. Added tag '{{ tag_to_add }}' to {{ target_droplet_ids | length }} Droplet(s): {{ target_droplet_ids | default([]) }}."
