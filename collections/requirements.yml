@@ -3,3 +3,4 @@ collections:
 
 - name: community.digitalocean
 - name: ansibleguy.opnsense
+- name: community.general
