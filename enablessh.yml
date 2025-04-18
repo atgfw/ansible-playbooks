@@ -1,103 +1,86 @@
 ---
-# Playbook Name: tag_3CX_firewall_droplets.yml
-# Description: Finds DigitalOcean Droplets associated with firewalls
-#              whose names start with '3CX' and adds the 'atgssh' tag to them.
-# Requirements:
-#   - Ansible installed
-#   - community.digitalocean collection installed (ansible-galaxy collection install community.digitalocean)
-#   - Python 'requests' library installed (pip install requests)
-#   - DigitalOcean API Token set as DO_API_TOKEN environment variable
-# Usage:
-#   export DO_API_TOKEN="YOUR_DO_API_TOKEN"
-#   ansible-playbook tag_3CX_firewall_droplets.yml
+# Playbook Name: tag_3CX_firewall_droplets.yml
+# Description : Tag every Droplet attached to a DigitalOcean firewall
+#               whose name begins with “3CX”; the tag applied is “atgssh”.
 #
-# Change History:
-#   - v1.1: Added 'default([])' filter to prevent errors if 'firewall_data.firewalls' is undefined.
+# Prerequisites
+#   • Ansible (core ≥2.14)
+#   • community.digitalocean collection
+#     (ansible-galaxy collection install community.digitalocean)
+#   • requests Python library
+#   • Environment variable DO_API_TOKEN set with a valid DO API token
+#
+# Usage
+#   export DO_API_TOKEN="your‑token‑value"
+#   ansible-playbook tag_3CX_firewall_droplets.yml
 
-- name: Tag Droplets associated with '3CX' firewalls
-  hosts: localhost # Run locally on the control node
-  gather_facts: no # No need to gather facts about the control node
-  connection: local # Use local connection for API calls
+- name: Tag Droplets behind “3CX” firewalls
+  hosts: localhost
+  connection: local
+  gather_facts: false
 
   vars:
-    # Prefix to search for in firewall names
-    firewall_prefix: "3CX"
-    # Tag to add to the identified droplets
-    tag_to_add: "atgssh"
-    # Retrieve the DigitalOcean API token from an environment variable
-    # This is more secure than hardcoding the token in the playbook.
-    # Ensure DO_API_TOKEN environment variable is set before running.
+    firewall_prefix: "3CX"   # firewalls whose names start with this string
+    tag_to_add: "atgssh"     # tag to apply to the Droplets
     do_api_token: "{{ lookup('env', 'DO_API_TOKEN') }}"
 
   tasks:
-    # --------------------------------------------------------------------------
-    # Pre-flight Checks
-    # --------------------------------------------------------------------------
-    - name: Fail if DigitalOcean API token is not provided
-      ansible.builtin.fail:
-        msg: "DigitalOcean API token not found. Please set the DO_API_TOKEN environment variable."
-      when: do_api_token is not defined or do_api_token == ""
-      run_once: true # Only check for the token once
+  # ---------------------------------------------------------------------------
+  # Pre‑flight
+  # ---------------------------------------------------------------------------
+  - name: Abort if DigitalOcean API token is missing
+    ansible.builtin.fail:
+      msg: |
+        DigitalOcean API token not found.  Export DO_API_TOKEN before running:
+          export DO_API_TOKEN="<your‑token>"
+    when: do_api_token | default('') | length == 0
+    run_once: true
 
-    # --------------------------------------------------------------------------
-    # Gather Information
-    # --------------------------------------------------------------------------
-    - name: Get all DigitalOcean firewalls information
-      community.digitalocean.digital_ocean_firewall_info:
-        oauth_token: "{{ do_api_token }}" # Authenticate using the API token
-      register: firewall_data # Store the output in the 'firewall_data' variable
-      changed_when: false # This task only reads data, it doesn't make changes
-      run_once: true # Only fetch firewall info once
-      # Consider adding 'failed_when: firewall_data.failed' if needed,
-      # though info modules often don't set 'failed' clearly on API errors.
+  # ---------------------------------------------------------------------------
+  # Gather firewall information
+  # ---------------------------------------------------------------------------
+  - name: Retrieve all DigitalOcean firewalls
+    community.digitalocean.digital_ocean_firewall_info:
+      oauth_token: "{{ do_api_token }}"
+    register: firewall_data
+    changed_when: false
+    run_once: true
 
-    # --------------------------------------------------------------------------
-    # Process Data and Identify Target Droplets
-    # --------------------------------------------------------------------------
-    - name: Identify Droplet IDs associated with firewalls starting with '{{ firewall_prefix }}'
-      ansible.builtin.set_fact:
-        # Use Jinja2 filters to process the firewall data:
-        # 1. firewall_data.firewalls | default([]): Access the list of firewalls. If 'firewalls' key
-        #    doesn't exist in firewall_data, use an empty list ([]) instead to prevent errors.
-        # 2. selectattr('name', 'match', '^' + firewall_prefix + '.*'): Filter this list, keeping only firewalls
-        #    where the 'name' attribute starts with the value of firewall_prefix (using regex matching).
-        # 3. map(attribute='droplet_ids'): For each matching firewall, extract its 'droplet_ids' attribute.
-        #    This results in a list of lists (e.g., [[111, 222], [333], []]).
-        # 4. sum(start=[]): Flatten the list of lists into a single list (e.g., [111, 222, 333]).
-        # 5. unique: Remove any duplicate Droplet IDs from the flattened list.
-        target_droplet_ids: "{{ (firewall_data.firewalls | default([])) | selectattr('name', 'match', '^' + firewall_prefix + '.*') | map(attribute='droplet_ids') | sum(start=[]) | unique }}"
-      run_once: true # Calculate the target list once
+  # ---------------------------------------------------------------------------
+  # Build list of target Droplet IDs
+  # ---------------------------------------------------------------------------
+  - name: Collect Droplet IDs from firewalls whose name matches the prefix
+    ansible.builtin.set_fact:
+      target_droplet_ids: >-
+        {{
+          (firewall_data.data | default([]))
+          | selectattr('name', 'match', '^' + firewall_prefix + '.*')
+          | map(attribute='droplet_ids')
+          | sum(start=[])
+          | unique
+        }}
+    run_once: true
 
-    # --------------------------------------------------------------------------
-    # Apply Tags
-    # --------------------------------------------------------------------------
-    - name: Ensure '{{ tag_to_add }}' tag exists in DigitalOcean account
-      community.digitalocean.digital_ocean_tag:
-        oauth_token: "{{ do_api_token }}"
-        name: "{{ tag_to_add }}"
-        state: present # Ensures the tag object exists. Idempotent.
-      register: tag_info
-      when: target_droplet_ids | length > 0 # Only create tag if there are droplets to tag
-      run_once: true # Only ensure tag exists once
+  # ---------------------------------------------------------------------------
+  # Tag each Droplet (module is idempotent and will create tag object if needed)
+  # ---------------------------------------------------------------------------
+  - name: Apply '{{ tag_to_add }}' tag to each target Droplet
+    community.digitalocean.digital_ocean_tag:
+      oauth_token: "{{ do_api_token }}"
+      name: "{{ tag_to_add }}"
+      resource_id: "{{ item | string }}"   # ensure ID is passed as a string
+      resource_type: droplet
+      state: present
+    loop: "{{ target_droplet_ids }}"
+    when: target_droplet_ids | length > 0
 
-    - name: Add '{{ tag_to_add }}' tag to identified Droplets
-      community.digitalocean.digital_ocean_tag:
-        oauth_token: "{{ do_api_token }}"
-        name: "{{ tag_to_add }}" # The tag to apply
-        resource_id: "{{ item }}" # The specific Droplet ID from the loop
-        resource_type: "droplet" # Specify the resource type as 'droplet'
-        state: present # Ensures the tag is associated with the droplet. Idempotent.
-      loop: "{{ target_droplet_ids }}" # Iterate over the list of Droplet IDs found earlier
-      when: target_droplet_ids | length > 0 # Only run if there are target droplets
-      # Note: This task is idempotent. If a droplet already has the tag, no change will be made.
-
-    # --------------------------------------------------------------------------
-    # Output Summary
-    # --------------------------------------------------------------------------
-    - name: Print summary message
-      ansible.builtin.debug:
-        msg: >
-          Checked firewalls starting with '{{ firewall_prefix }}'.
-          Processed {{ target_droplet_ids | length }} unique Droplet(s) associated with these firewalls.
-          Ensured tag '{{ tag_to_add }}' is applied to Droplet IDs: {{ target_droplet_ids | default('None') }}.
-      run_once: true
+  # ---------------------------------------------------------------------------
+  # Report
+  # ---------------------------------------------------------------------------
+  - name: Summary
+    ansible.builtin.debug:
+      msg: >-
+        Processed {{ target_droplet_ids | length }} Droplet(s):
+        {{ target_droplet_ids | join(', ') | default('none') }}.
+        Tag '{{ tag_to_add }}' ensured on all of them.
+    run_once: true
