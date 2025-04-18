@@ -1,0 +1,14 @@
+---
+- name: Get public IP of the Ansible control host
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Get public IP using api.ipify.org
+      uri:
+        url: https://api.ipify.org
+        return_content: yes
+      register: public_ip_response
+
+    - name: Show public IP
+      debug:
+        msg: "The public IP of this host is {{ public_ip_response.content }}"
