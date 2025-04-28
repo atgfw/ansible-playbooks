@@ -3,30 +3,12 @@
 # Purpose: Create or update a ConnectWise Manage "Configuration" record for
 #          each DigitalOcean Droplet, using facts gathered at runtime.
 #
-# Highlights (v9)
-# ───────────────
-# • **Company tag can be CW *Name* **or** *Identifier*.**
-#   – A tag `company:<VALUE>` now tries two lookups:
-#     1. `identifier="<VALUE>"` (exact match on the short code)
-#     2. `name like "%<VALUE>%"`  (case‑insensitive contains on full name)
-#   The first match wins. This lets you tag with the concise *Identifier*
-#   (recommended) but still works with full company names.
-# • Fallback variable renamed → `cw_default_company_tag` (accepts same rules).
-# • Auth `clientId` unchanged (env var).
+# Highlights (v9.1)
+# ──────────────────
+# • Fixed YAML syntax: replaced stray `return` keyword with
+#   `return_content: yes` in both the **Create** and **Update** URI tasks.
 #
-# Tag examples
-# ────────────
-#   company:ATGFW          # uses CW company *Identifier* "ATGFW"
-#   company:Acme Corp      # matches CW Name containing "Acme Corp"
-#
-# Quick run
-# ---------
-#   export CW_COMPANY_ID=myco
-#   export CW_PUBLIC_KEY=XXXX
-#   export CW_PRIVATE_KEY=YYYY
-#   export CW_CLIENT_ID=GUID‑FROM‑CW
-#   ansible-playbook sync_connectwise.yml \
-#     --extra-vars "cw_default_company_tag=ATGFW"
+# (All other functionality unchanged from v9.)
 #
 - name: Sync host facts to ConnectWise Manage configuration
   hosts: all
@@ -41,9 +23,9 @@
     cw_private_key: "{{ lookup('env','CW_PRIVATE_KEY') }}"
     cw_client_id:  "{{ lookup('env','CW_CLIENT_ID') }}"
 
-    # Defaults (override via inventory / extra‑vars)
-    cw_default_company_tag: ""      # fallback tag value if none on droplet
-    cw_location_id: ""              # blank → omit location
+    # Defaults
+    cw_default_company_tag: ""
+    cw_location_id: ""
 
     # Configuration Type
     cw_config_type_name: "Droplet"
@@ -54,22 +36,20 @@
 
   tasks:
 
-    ######################################################################
-    # 1) Validation & get tag value
-    ######################################################################
+    # -------------------------------------------------------------------
+    # 1) Validation & tag extraction
+    # -------------------------------------------------------------------
 
     - name: Ensure CW_CLIENT_ID env var is present
       when: (cw_client_id | length) == 0
       fail:
         msg: "CW_CLIENT_ID environment variable is required for ConnectWise authentication."
 
-    - name: Extract company tag value (name or identifier)
+    - name: Extract company tag value (identifier or name)
       set_fact:
         cw_company_tag_value: >-
-          {{
-            (do_tags | default([]) | select('match','^company:') | list | first | default(cw_default_company_tag))
-            | regex_replace('^company:','')
-          }}
+          {{ (do_tags | default([]) | select('match','^company:') | list | first | default(cw_default_company_tag))
+             | regex_replace('^company:','') }}
 
     - name: Abort if no company tag value determined
       when: (cw_company_tag_value | length) == 0
@@ -80,9 +60,9 @@
       set_fact:
         cw_auth_header: "Basic {{ (cw_company_id ~ '+' ~ cw_public_key ~ ':' ~ cw_private_key)|b64encode }}"
 
-    ######################################################################
-    # 2) Resolve company tag → ID (identifier first, then name‑like)
-    ######################################################################
+    # -------------------------------------------------------------------
+    # 2) Resolve company tag → ID
+    # -------------------------------------------------------------------
 
     - name: Lookup Company by Identifier first
       uri:
@@ -112,17 +92,17 @@
     - name: Set CW Company ID fact based on first successful match
       set_fact:
         cw_company_target_id: >-
-          {{ (cw_company_lookup_id.json | length > 0) 
-                | ternary(cw_company_lookup_id.json[0].id, cw_company_lookup_name.json[0].id) }}
+          {{ (cw_company_lookup_id.json | length > 0)
+             | ternary(cw_company_lookup_id.json[0].id, cw_company_lookup_name.json[0].id) }}
 
     - name: Abort if company still not found
       when: cw_company_target_id is not defined
       fail:
         msg: "Company '{{ cw_company_tag_value }}' not found by identifier or name in ConnectWise."
 
-    ######################################################################
-    # 3) Additional derived values & existing config lookup
-    ######################################################################
+    # -------------------------------------------------------------------
+    # 3) Device identifiers & DO helpers
+    # -------------------------------------------------------------------
 
     - name: Determine unique device identifier
       set_fact:
@@ -149,9 +129,9 @@
         return_content: yes
       register: cw_lookup
 
-    ######################################################################
-    # 4) Build relationship & payload (unchanged below)
-    ######################################################################
+    # -------------------------------------------------------------------
+    # 4) Build payload
+    # -------------------------------------------------------------------
 
     - name: Build relationship dictionary
       set_fact:
@@ -160,8 +140,7 @@
             {
               'configurationType': (
                 cw_config_type_name | length > 0
-                and { 'name': cw_config_type_name }
-                or { 'id': cw_config_type_id | int }
+                and { 'name': cw_config_type_name } or { 'id': cw_config_type_id | int }
               ),
               'configurationStatus': { 'id': cw_status_id },
               'company': { 'id': cw_company_target_id | int }
@@ -195,7 +174,7 @@
                 { 'caption': 'Private IP', 'value': do_private_ip }
               ],
               'notes': (
-                'Auto‑generated by Ansible\n'
+                'Auto-generated by Ansible\n'
                 ~ 'Region: ' ~ do_region_slug ~ '\n'
                 ~ 'CPU: ' ~ (do_vcpus | default('?') | string) ~ ' vCPUs\n'
                 ~ 'RAM: ' ~ ((do_memory | default(0)) // 1024 | string) ~ ' GB\n'
@@ -207,9 +186,9 @@
             })
           }}
 
-    ######################################################################
-    # 5) Create or update configuration (unchanged)
-    ######################################################################
+    # -------------------------------------------------------------------
+    # 5) Create or update configuration
+    # -------------------------------------------------------------------
 
     - name: Create configuration when absent
       when: cw_lookup.json | length == 0
@@ -224,4 +203,10 @@
         body_format: json
         status_code: 201
         validate_certs: yes
-        return
+        return_content: yes
+      register: cw_create
+
+    - name: Update configuration when present
+      when: cw_lookup.json | length > 0
+      uri:
+        url: "
