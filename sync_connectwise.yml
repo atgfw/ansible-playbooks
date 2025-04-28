@@ -3,11 +3,11 @@
 # Purpose: Create or update a ConnectWise Manage "Configuration" record for
 #          each DigitalOcean Droplet, using facts gathered at runtime.
 #
-# Highlights (v9.2)
+# Highlights (v9.3)
 # ──────────────────
-# • Completed the truncated YAML (Update task + debug).
-# • Switched inner quotes in URL parameters to single quotes so the YAML
-#   remains valid (identifier + LIKE look‑ups).
+# • **Hardened null‑safe helpers** – compute `safe_public_ip`, `safe_mac`, and
+#   `safe_region`, so templating never crashes when fields are missing.
+# • Simplified `ipAddress` and `macAddress` lines to use new helpers.
 #
 - name: Sync host facts to ConnectWise Manage configuration
   hosts: all
@@ -16,178 +16,155 @@
   vars:
     cw_base_url: "https://api-na.myconnectwise.net/v4_6_release/apis/3.0"
 
-    # Credentials (env vars) — clientId **must** be set
     cw_company_id: "{{ lookup('env','CW_COMPANY_ID') }}"
     cw_public_key: "{{ lookup('env','CW_PUBLIC_KEY') }}"
     cw_private_key: "{{ lookup('env','CW_PRIVATE_KEY') }}"
     cw_client_id:  "{{ lookup('env','CW_CLIENT_ID') }}"
 
-    # Defaults
     cw_default_company_tag: ""
     cw_location_id: ""
 
-    # Configuration Type
     cw_config_type_name: "Droplet"
     cw_config_type_id: ""
-
-    # Other fixed IDs
     cw_status_id: 5
 
   tasks:
 
-    # -------------------------------------------------------------------
-    # 1) Validation & tag extraction
-    # -------------------------------------------------------------------
+    # 1) Validation ------------------------------------------------------
 
     - name: Ensure CW_CLIENT_ID env var is present
-      when: (cw_client_id | length) == 0
+      when: cw_client_id | length == 0
       fail:
-        msg: "CW_CLIENT_ID environment variable is required for ConnectWise authentication."
+        msg: "CW_CLIENT_ID env var required."
 
-    - name: Extract company tag value (identifier or name)
+    - name: Extract company tag
       set_fact:
         cw_company_tag_value: >-
           {{ (do_tags | default([]) | select('match','^company:') | list | first | default(cw_default_company_tag))
              | regex_replace('^company:','') }}
 
-    - name: Abort if no company tag value determined
-      when: (cw_company_tag_value | length) == 0
+    - name: Fail if company tag missing
+      when: cw_company_tag_value | length == 0
       fail:
-        msg: "No company:<VALUE> tag on droplet and cw_default_company_tag is blank."
+        msg: "No company tag and no default."
 
-    - name: Build Authorization header
+    - name: Build auth header
       set_fact:
         cw_auth_header: "Basic {{ (cw_company_id ~ '+' ~ cw_public_key ~ ':' ~ cw_private_key)|b64encode }}"
 
-    # -------------------------------------------------------------------
-    # 2) Resolve company tag → ID
-    # -------------------------------------------------------------------
+    # 2) Resolve company -----------------------------------------------
 
-    - name: Lookup Company by Identifier first
+    - name: Lookup company by identifier
       uri:
         url: "{{ cw_base_url }}/company/companies?conditions=identifier='{{ cw_company_tag_value }}'"
-        method: GET
         headers:
           Authorization: "{{ cw_auth_header }}"
           clientId: "{{ cw_client_id }}"
           Accept: "application/json"
+        method: GET
         validate_certs: yes
         return_content: yes
       register: cw_company_lookup_id
 
-    - name: Lookup Company by Name (LIKE) if identifier not found
+    - name: Lookup company by name LIKE if needed
       when: cw_company_lookup_id.json | length == 0
       uri:
         url: "{{ cw_base_url }}/company/companies?conditions=name like '%{{ cw_company_tag_value }}%'"
-        method: GET
         headers:
           Authorization: "{{ cw_auth_header }}"
           clientId: "{{ cw_client_id }}"
           Accept: "application/json"
+        method: GET
         validate_certs: yes
         return_content: yes
       register: cw_company_lookup_name
 
-    - name: Set CW Company ID fact based on first successful match
+    - name: Set company id fact
       set_fact:
         cw_company_target_id: >-
-          {{ (cw_company_lookup_id.json | length > 0)
-             | ternary(cw_company_lookup_id.json[0].id, cw_company_lookup_name.json[0].id) }}
+          {{ (cw_company_lookup_id.json | length > 0) | ternary(cw_company_lookup_id.json[0].id, cw_company_lookup_name.json[0].id | default(None)) }}
 
-    - name: Abort if company still not found
+    - name: Fail if company not resolved
       when: cw_company_target_id is not defined
       fail:
-        msg: "Company '{{ cw_company_tag_value }}' not found by identifier or name in ConnectWise."
+        msg: "Company '{{ cw_company_tag_value }}' not found in CW."
 
-    # -------------------------------------------------------------------
-    # 3) Device identifiers & DO helpers
-    # -------------------------------------------------------------------
+    # 3) Helper facts ----------------------------------------------------
 
-    - name: Determine unique device identifier
+    - name: Compute safe helper values
       set_fact:
         cw_device_uuid: >-
           {{ do_id | default(ansible_product_uuid | default(ansible_machine_id | default(inventory_hostname))) }}
-
-    - name: Derive DigitalOcean helper values
-      set_fact:
-        do_region_slug: "{{ do_region.slug | default('') }}"
-        do_size_slug: "{{ do_size.slug | default('') }}"
-        do_private_ip: >-
+        safe_region: "{{ do_region.slug | default('') }}"
+        safe_public_ip: >-
+          {{ (do_networks.v4 | selectattr('type','equalto','public') | list | first).ip_address
+             if (do_networks is defined and (do_networks.v4 | default([])) | length > 0) else (ansible_host | default('')) }}
+        safe_mac: >-
+          {{ (ansible_default_ipv4.macaddress if (ansible_default_ipv4 is defined and 'macaddress' in ansible_default_ipv4) else '') }}
+        safe_private_ip: >-
           {{ (do_networks.v4 | selectattr('type','equalto','private') | list | first).ip_address
-             if (do_networks is defined and do_networks.v4 | length > 0) else '' }}
+             if (do_networks is defined and (do_networks.v4 | default([])) | length > 0) else '' }}
+        safe_size: "{{ do_size.slug | default('') }}"
 
-    - name: Query ConnectWise for existing configuration
+    - name: Query existing configuration
       uri:
         url: "{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier='{{ cw_device_uuid }}'"
-        method: GET
         headers:
           Authorization: "{{ cw_auth_header }}"
           clientId: "{{ cw_client_id }}"
           Accept: "application/json"
+        method: GET
         validate_certs: yes
         return_content: yes
       register: cw_lookup
 
-    # -------------------------------------------------------------------
-    # 4) Build payload
-    # -------------------------------------------------------------------
+    # 4) Relationship dict ----------------------------------------------
 
-    - name: Build relationship dictionary
+    - name: Build relationship dict
       set_fact:
-        cw_relationships: >-
-          {{
-            {
-              'configurationType': (
-                cw_config_type_name | length > 0
-                and { 'name': cw_config_type_name } or { 'id': cw_config_type_id | int }
-              ),
-              'configurationStatus': { 'id': cw_status_id },
-              'company': { 'id': cw_company_target_id | int }
-            }
-            | combine( cw_location_id | length > 0 and { 'location': { 'id': cw_location_id | int } } or {} )
-          }}
+        cw_relationships:
+          configurationStatus: { id: "{{ cw_status_id }}" }
+          company: { id: "{{ cw_company_target_id }}" }
+          configurationType: >-
+            {{ cw_config_type_name | length > 0 and { 'name': cw_config_type_name } or { 'id': cw_config_type_id | int } }}
+          {% if cw_location_id | length > 0 %}location: { id: "{{ cw_location_id }}" }{% endif %}
 
-    - name: Assemble configuration payload
+    # 5) Payload ---------------------------------------------------------
+
+    - name: Assemble payload safely
       set_fact:
-        cw_payload: >-
-          {{
-            cw_relationships | combine({
-              'name': do_name | default(ansible_hostname),
-              'deviceIdentifier': cw_device_uuid,
-              'manufacturer': 'DigitalOcean',
-              'modelNumber': do_size_slug,
-              'serialNumber': do_id | default(''),
-              'coreCount': do_vcpus | default(0),
-              'ram': do_memory | default(0),
-              'hardDrive': do_disk | default(0),
-              'osType': distro | default(ansible_distribution),
-              'osInfo': do_image.description | default(''),
-              'ipAddress': ansible_host | default((do_networks.v4 | selectattr('type','equalto','public') | list | first).ip_address | default('')),
-              'macAddress': ansible_default_ipv4.macaddress | default(''),
-              'networkName': do_name | default(ansible_hostname),
-              'customFields': [
-                { 'caption': 'Droplet ID', 'value': do_id | default('') },
-                { 'caption': 'DO Region',  'value': do_region_slug },
-                { 'caption': 'DO Size',    'value': do_size_slug },
-                { 'caption': 'DO Tags',    'value': do_tags | join(', ') if do_tags is defined else '' },
-                { 'caption': 'Private IP', 'value': do_private_ip }
-              ],
-              'notes': (
-                'Auto-generated by Ansible\n'
-                ~ 'Region: ' ~ do_region_slug ~ '\n'
-                ~ 'CPU: ' ~ (do_vcpus | default('?') | string) ~ ' vCPUs\n'
-                ~ 'RAM: ' ~ ((do_memory | default(0)) // 1024 | string) ~ ' GB\n'
-                ~ 'Disk: ' ~ (do_disk | default('?') | string) ~ ' GB\n'
-                ~ 'Tags: ' ~ (do_tags | default([]) | join(', ')) ~ '\n'
-                ~ 'OS Image: ' ~ (do_image.description | default('')) ~ '\n'
-                ~ 'Updated: ' ~ ansible_date_time.iso8601
-              )
-            })
-          }}
+        cw_payload:
+          <<: "{{ cw_relationships }}"
+          name: "{{ do_name | default(ansible_hostname) }}"
+          deviceIdentifier: "{{ cw_device_uuid }}"
+          manufacturer: "DigitalOcean"
+          modelNumber: "{{ safe_size }}"
+          serialNumber: "{{ do_id | default('') }}"
+          coreCount: "{{ do_vcpus | default(0) }}"
+          ram: "{{ do_memory | default(0) }}"
+          hardDrive: "{{ do_disk | default(0) }}"
+          osType: "{{ distro | default(ansible_distribution) }}"
+          osInfo: "{{ do_image.description | default('') }}"
+          ipAddress: "{{ safe_public_ip }}"
+          macAddress: "{{ safe_mac }}"
+          networkName: "{{ do_name | default(ansible_hostname) }}"
+          customFields:
+            - { caption: "Droplet ID", value: "{{ do_id | default('') }}" }
+            - { caption: "DO Region",  value: "{{ safe_region }}" }
+            - { caption: "DO Size",    value: "{{ safe_size }}" }
+            - { caption: "DO Tags",    value: "{{ do_tags | join(', ') if do_tags is defined else '' }}" }
+            - { caption: "Private IP", value: "{{ safe_private_ip }}" }
+          notes: |
+            Auto-generated by Ansible
+            Region: {{ safe_region }}
+            CPU: {{ do_vcpus | default('?') }} vCPUs
+            RAM: {{ (do_memory | default(0) // 1024) }} GB
+            Disk: {{ do_disk | default('?') }} GB
+            Tags: {{ do_tags | default([]) | join(', ') }}
+            OS Image: {{ do_image.description | default('') }}
+            Updated: {{ ansible_date_time.iso8601 }}
 
-    # -------------------------------------------------------------------
-    # 5) Create or update configuration
-    # -------------------------------------------------------------------
+    # 6) Create or update -----------------------------------------------
 
     - name: Create configuration when absent
       when: cw_lookup.json | length == 0
@@ -211,4 +188,16 @@
         url: "{{ cw_base_url }}/company/configurations/{{ cw_lookup.json[0].id }}"
         method: PATCH
         headers:
-          Authorization
+          Authorization: "{{ cw_auth_header }}"
+          clientId: "{{ cw_client_id }}"
+          Content-Type: "application/json"
+        body: "{{ cw_payload }}"
+        body_format: json
+        status_code: 200
+        validate_certs: yes
+        return_content: yes
+      register: cw_update
+
+    - name: Debug API result
+      debug:
+        msg: "{{ (cw_create.json if (cw_lookup.json | length == 0) else cw_update.json) }}"
