@@ -1,16 +1,25 @@
 ---
 # Playbook: sync_connectwise.yml
-# Purpose: Create or update a ConnectWise Manage "Configuration" record
-#          for each Ansible host using information gathered at runtime.
+# Purpose: Create or update a ConnectWise Manage "Configuration" record for
+#          each DigitalOcean Droplet, using facts gathered at runtime.
 #
-# Highlights (v6)
+# Highlights (v8)
 # ───────────────
-# • **Config‑Type by *name* or *ID*** – Supply either `cw_config_type_name`
-#   (e.g. `Droplet`) *or* `cw_config_type_id` (numeric). Name wins if both are
-#   set. The playbook injects the correct object into the payload so you’re free
-#   to avoid hard‑coding numeric IDs.
-# • Everything else untouched: optional location, DO Size custom field, skip
-#   logic for missing client tag.
+# • **Company ownership by *name*** – A tag `company:<NAME>` (e.g. `company:Acme`)
+#   is now resolved to the correct ConnectWise **Company ID** at runtime via
+#   an API lookup. Set `cw_default_company_name` if the tag is missing.
+# • Auth `clientId` still comes from `CW_CLIENT_ID` env var.
+# • Config‑type may be specified by name (`Droplet`) or ID.
+#
+# Prerequisites
+# ─────────────
+#   export CW_COMPANY_ID=myco
+#   export CW_PUBLIC_KEY=XXXX
+#   export CW_PRIVATE_KEY=YYYY
+#   export CW_CLIENT_ID=GUID‑FROM‑CW   # required
+#
+#   ansible-playbook sync_connectwise.yml \
+#     --extra-vars "cw_default_company_name=Acme cw_config_type_name=Droplet"
 #
 - name: Sync host facts to ConnectWise Manage configuration
   hosts: all
@@ -19,51 +28,92 @@
   vars:
     cw_base_url: "https://api-na.myconnectwise.net/v4_6_release/apis/3.0"
 
-    # Credentials (env vars)
+    # Credentials (env vars) — clientId **must** be set
     cw_company_id: "{{ lookup('env','CW_COMPANY_ID') }}"
     cw_public_key: "{{ lookup('env','CW_PUBLIC_KEY') }}"
     cw_private_key: "{{ lookup('env','CW_PRIVATE_KEY') }}"
+    cw_client_id:  "{{ lookup('env','CW_CLIENT_ID') }}"
 
-    # Defaults — override via inventory / group‑vars / --extra‑vars
-    cw_default_client_id: ""
-    cw_location_id: ""            # blank → omit
+    # Defaults (override via inventory/group/extra‑vars)
+    cw_default_company_name: ""      # fallback if no company tag
+    cw_location_id: ""               # blank → omit location
 
-    # Configuration Type: set ONE of these
-    cw_config_type_name: "Droplet" # human‑friendly name (preferred)
-    cw_config_type_id: ""          # numeric fallback
+    # Configuration Type: choose one
+    cw_config_type_name: "Droplet"   # preferred human‑readable
+    cw_config_type_id: ""            # numeric fallback
 
-    # Other static IDs
-    cw_status_id: 5
-    cw_company_target_id: 42
+    # Other fixed IDs
+    cw_status_id: 5                  # e.g. Active
 
   tasks:
 
-    - name: Extract cw_client_id from tag or default
+    ######################################################################
+    # 1) Validation & basic derived values
+    ######################################################################
+
+    - name: Abort early if CW_CLIENT_ID env var is missing
+      when: (cw_client_id | length) == 0
+      fail:
+        msg: "CW_CLIENT_ID environment variable is required for ConnectWise authentication."
+
+    - name: Extract company name from tag or default
       set_fact:
-        cw_client_id: >-
+        cw_company_name: >-
           {{
-            (do_tags | default([]) | select('match','^company:') | list | first | default(cw_default_client_id))
+            (do_tags | default([]) | select('match','^company:') | list | first | default(cw_default_company_name))
             | regex_replace('^company:','')
           }}
 
-    - name: Skip host if no ConnectWise client ID could be determined
-      when: (cw_client_id | length) == 0
-      meta: end_host
+    - name: Abort if company name not determined
+      when: (cw_company_name | length) == 0
+      fail:
+        msg: "Could not determine ConnectWise Company name (no company:<NAME> tag and no cw_default_company_name)."
 
     - name: Build Authorization header
       set_fact:
         cw_auth_header: "Basic {{ (cw_company_id ~ '+' ~ cw_public_key ~ ':' ~ cw_private_key)|b64encode }}"
 
-    - name: Determine unique identifier
+    ######################################################################
+    # 2) Resolve company name → ID via ConnectWise API
+    ######################################################################
+
+    - name: Lookup ConnectWise Company ID by name
+      uri:
+        url: "{{ cw_base_url }}/company/companies?conditions=name=\"{{ cw_company_name }}\""
+        method: GET
+        headers:
+          Authorization: "{{ cw_auth_header }}"
+          clientId: "{{ cw_client_id }}"
+          Accept: "application/json"
+        validate_certs: yes
+        return_content: yes
+      register: cw_company_lookup
+
+    - name: Abort if company name not found in ConnectWise
+      when: cw_company_lookup.json | length == 0
+      fail:
+        msg: "Company '{{ cw_company_name }}' not found in ConnectWise."
+
+    - name: Set ConnectWise Company ID fact
       set_fact:
-        cw_device_uuid: "{{ do_id | default(ansible_product_uuid | default(ansible_machine_id | default(inventory_hostname))) }}"
+        cw_company_target_id: "{{ cw_company_lookup.json[0].id }}"
+
+    ######################################################################
+    # 3) Additional host‑specific derived values
+    ######################################################################
+
+    - name: Determine unique device identifier
+      set_fact:
+        cw_device_uuid: >-
+          {{ do_id | default(ansible_product_uuid | default(ansible_machine_id | default(inventory_hostname))) }}
 
     - name: Derive DigitalOcean helper values
       set_fact:
         do_region_slug: "{{ do_region.slug | default('') }}"
         do_size_slug: "{{ do_size.slug | default('') }}"
-        do_private_ip: "{{ (do_networks.v4 | selectattr('type','equalto','private') | list | first).ip_address
-                          if (do_networks is defined and do_networks.v4 | length > 0) else '' }}"
+        do_private_ip: >-
+          {{ (do_networks.v4 | selectattr('type','equalto','private') | list | first).ip_address
+             if (do_networks is defined and do_networks.v4 | length > 0) else '' }}
 
     - name: Query ConnectWise for existing configuration
       uri:
@@ -77,7 +127,11 @@
         return_content: yes
       register: cw_lookup
 
-    - name: Build relationship dict (config‑type by name **or** ID)
+    ######################################################################
+    # 4) Build relationship & payload
+    ######################################################################
+
+    - name: Build relationship dictionary
       set_fact:
         cw_relationships: >-
           {{
@@ -85,12 +139,12 @@
               'configurationType': (
                 cw_config_type_name | length > 0
                 and { 'name': cw_config_type_name }
-                or { 'id': cw_config_type_id|int }
+                or { 'id': cw_config_type_id | int }
               ),
               'configurationStatus': { 'id': cw_status_id },
-              'company': { 'id': cw_company_target_id }
+              'company': { 'id': cw_company_target_id | int }
             }
-            | combine( cw_location_id | length > 0 and { 'location': { 'id': cw_location_id|int } } or {} )
+            | combine( cw_location_id | length > 0 and { 'location': { 'id': cw_location_id | int } } or {} )
           }}
 
     - name: Assemble configuration payload
@@ -104,8 +158,8 @@
               'modelNumber': do_size_slug,
               'serialNumber': do_id | default(''),
               'coreCount': do_vcpus | default(0),
-              'ram': do_memory | default(0),
-              'hardDrive': do_disk | default(0),
+              'ram': do_memory | default(0),            # MB
+              'hardDrive': do_disk | default(0),        # GB
               'osType': distro | default(ansible_distribution),
               'osInfo': do_image.description | default(''),
               'ipAddress': ansible_host | default((do_networks.v4 | selectattr('type','equalto','public') | list | first).ip_address | default('')),
@@ -119,7 +173,7 @@
                 { 'caption': 'Private IP', 'value': do_private_ip }
               ],
               'notes': (
-                'Auto-generated by Ansible\n'
+                'Auto‑generated by Ansible\n'
                 ~ 'Region: ' ~ do_region_slug ~ '\n'
                 ~ 'CPU: ' ~ (do_vcpus | default('?') | string) ~ ' vCPUs\n'
                 ~ 'RAM: ' ~ ((do_memory | default(0)) // 1024 | string) ~ ' GB\n'
@@ -130,6 +184,10 @@
               )
             })
           }}
+
+    ######################################################################
+    # 5) Create or update configuration
+    ######################################################################
 
     - name: Create configuration when absent
       when: cw_lookup.json | length == 0
