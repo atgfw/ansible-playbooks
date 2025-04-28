@@ -3,12 +3,11 @@
 # Purpose: Create or update a ConnectWise Manage "Configuration" record for
 #          each DigitalOcean Droplet, using facts gathered at runtime.
 #
-# Highlights (v9.1)
+# Highlights (v9.2)
 # ──────────────────
-# • Fixed YAML syntax: replaced stray `return` keyword with
-#   `return_content: yes` in both the **Create** and **Update** URI tasks.
-#
-# (All other functionality unchanged from v9.)
+# • Completed the truncated YAML (Update task + debug).
+# • Switched inner quotes in URL parameters to single quotes so the YAML
+#   remains valid (identifier + LIKE look‑ups).
 #
 - name: Sync host facts to ConnectWise Manage configuration
   hosts: all
@@ -66,7 +65,7 @@
 
     - name: Lookup Company by Identifier first
       uri:
-        url: "{{ cw_base_url }}/company/companies?conditions=identifier=\"{{ cw_company_tag_value }}\""
+        url: "{{ cw_base_url }}/company/companies?conditions=identifier='{{ cw_company_tag_value }}'"
         method: GET
         headers:
           Authorization: "{{ cw_auth_header }}"
@@ -79,7 +78,7 @@
     - name: Lookup Company by Name (LIKE) if identifier not found
       when: cw_company_lookup_id.json | length == 0
       uri:
-        url: "{{ cw_base_url }}/company/companies?conditions=name like \"%{{ cw_company_tag_value }}%\""
+        url: "{{ cw_base_url }}/company/companies?conditions=name like '%{{ cw_company_tag_value }}%'"
         method: GET
         headers:
           Authorization: "{{ cw_auth_header }}"
@@ -119,7 +118,7 @@
 
     - name: Query ConnectWise for existing configuration
       uri:
-        url: "{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier=\"{{ cw_device_uuid }}\""
+        url: "{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier='{{ cw_device_uuid }}'"
         method: GET
         headers:
           Authorization: "{{ cw_auth_header }}"
@@ -209,4 +208,7 @@
     - name: Update configuration when present
       when: cw_lookup.json | length > 0
       uri:
-        url: "
+        url: "{{ cw_base_url }}/company/configurations/{{ cw_lookup.json[0].id }}"
+        method: PATCH
+        headers:
+          Authorization
