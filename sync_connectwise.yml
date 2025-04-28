@@ -122,14 +122,22 @@
 
     - name: Build relationship dict
       set_fact:
-        cw_relationships:
-          configurationStatus: { id: "{{ cw_status_id }}" }
-          company: { id: "{{ cw_company_target_id }}" }
-          configurationType: >-
-            {{ cw_config_type_name | length > 0 and { 'name': cw_config_type_name } or { 'id': cw_config_type_id | int } }}
-          {% if cw_location_id | length > 0 %}location: { id: "{{ cw_location_id }}" }{% endif %}
+        cw_relationships: >-
+          {{
+            {
+              'configurationStatus': { 'id': cw_status_id | int },
+              'company': { 'id': cw_company_target_id | int },
+              'configurationType': (
+                cw_config_type_name | length > 0
+                and { 'name': cw_config_type_name }
+                or { 'id': cw_config_type_id | int }
+              )
+            }
+            | combine( (cw_location_id | length > 0)
+                | ternary({ 'location': { 'id': cw_location_id | int } }, {}) )
+          }}
 
-    # 5) Payload ---------------------------------------------------------
+    # 5) Payload --------------------------------------------------------- ---------------------------------------------------------
 
     - name: Assemble payload safely
       set_fact:
