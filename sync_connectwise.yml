@@ -201,4 +201,15 @@
         method: PATCH
         headers:
           Authorization: "{{ cw_auth_header }}"
-          clientId: "
+          clientId: "{{ cw_client_id }}"
+          Content-Type: "application/json"
+        body: "{{ cw_payload }}"
+        body_format: json
+        status_code: 200
+        validate_certs: yes
+        return_content: yes
+      register: cw_update
+
+    - name: Show ConnectWise API result
+      debug:
+        msg: "{{ (cw_create.json if (cw_lookup.json | length == 0) else cw_update.json) }}"
