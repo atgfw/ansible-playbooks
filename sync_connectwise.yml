@@ -1,0 +1,168 @@
+---
+# Playbook: sync_connectwise.yml
+# Purpose: Create or update a ConnectWise Manage "Configuration" record
+#          for each Ansible host using information gathered at runtime.
+#
+# Highlights (v6)
+# ───────────────
+# • **Config‑Type by *name* or *ID*** – Supply either `cw_config_type_name`
+#   (e.g. `Droplet`) *or* `cw_config_type_id` (numeric). Name wins if both are
+#   set. The playbook injects the correct object into the payload so you’re free
+#   to avoid hard‑coding numeric IDs.
+# • Everything else untouched: optional location, DO Size custom field, skip
+#   logic for missing client tag.
+#
+- name: Sync host facts to ConnectWise Manage configuration
+  hosts: all
+  gather_facts: yes
+
+  vars:
+    cw_base_url: "https://api-na.myconnectwise.net/v4_6_release/apis/3.0"
+
+    # Credentials (env vars)
+    cw_company_id: "{{ lookup('env','CW_COMPANY_ID') }}"
+    cw_public_key: "{{ lookup('env','CW_PUBLIC_KEY') }}"
+    cw_private_key: "{{ lookup('env','CW_PRIVATE_KEY') }}"
+
+    # Defaults — override via inventory / group‑vars / --extra‑vars
+    cw_default_client_id: ""
+    cw_location_id: ""            # blank → omit
+
+    # Configuration Type: set ONE of these
+    cw_config_type_name: "Droplet" # human‑friendly name (preferred)
+    cw_config_type_id: ""          # numeric fallback
+
+    # Other static IDs
+    cw_status_id: 5
+    cw_company_target_id: 42
+
+  tasks:
+
+    - name: Extract cw_client_id from tag or default
+      set_fact:
+        cw_client_id: >-
+          {{
+            (do_tags | default([]) | select('match','^company:') | list | first | default(cw_default_client_id))
+            | regex_replace('^company:','')
+          }}
+
+    - name: Skip host if no ConnectWise client ID could be determined
+      when: (cw_client_id | length) == 0
+      meta: end_host
+
+    - name: Build Authorization header
+      set_fact:
+        cw_auth_header: "Basic {{ (cw_company_id ~ '+' ~ cw_public_key ~ ':' ~ cw_private_key)|b64encode }}"
+
+    - name: Determine unique identifier
+      set_fact:
+        cw_device_uuid: "{{ do_id | default(ansible_product_uuid | default(ansible_machine_id | default(inventory_hostname))) }}"
+
+    - name: Derive DigitalOcean helper values
+      set_fact:
+        do_region_slug: "{{ do_region.slug | default('') }}"
+        do_size_slug: "{{ do_size.slug | default('') }}"
+        do_private_ip: "{{ (do_networks.v4 | selectattr('type','equalto','private') | list | first).ip_address
+                          if (do_networks is defined and do_networks.v4 | length > 0) else '' }}"
+
+    - name: Query ConnectWise for existing configuration
+      uri:
+        url: "{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier=\"{{ cw_device_uuid }}\""
+        method: GET
+        headers:
+          Authorization: "{{ cw_auth_header }}"
+          clientId: "{{ cw_client_id }}"
+          Accept: "application/json"
+        validate_certs: yes
+        return_content: yes
+      register: cw_lookup
+
+    - name: Build relationship dict (config‑type by name **or** ID)
+      set_fact:
+        cw_relationships: >-
+          {{
+            {
+              'configurationType': (
+                cw_config_type_name | length > 0
+                and { 'name': cw_config_type_name }
+                or { 'id': cw_config_type_id|int }
+              ),
+              'configurationStatus': { 'id': cw_status_id },
+              'company': { 'id': cw_company_target_id }
+            }
+            | combine( cw_location_id | length > 0 and { 'location': { 'id': cw_location_id|int } } or {} )
+          }}
+
+    - name: Assemble configuration payload
+      set_fact:
+        cw_payload: >-
+          {{
+            cw_relationships | combine({
+              'name': do_name | default(ansible_hostname),
+              'deviceIdentifier': cw_device_uuid,
+              'manufacturer': 'DigitalOcean',
+              'modelNumber': do_size_slug,
+              'serialNumber': do_id | default(''),
+              'coreCount': do_vcpus | default(0),
+              'ram': do_memory | default(0),
+              'hardDrive': do_disk | default(0),
+              'osType': distro | default(ansible_distribution),
+              'osInfo': do_image.description | default(''),
+              'ipAddress': ansible_host | default((do_networks.v4 | selectattr('type','equalto','public') | list | first).ip_address | default('')),
+              'macAddress': ansible_default_ipv4.macaddress | default(''),
+              'networkName': do_name | default(ansible_hostname),
+              'customFields': [
+                { 'caption': 'Droplet ID', 'value': do_id | default('') },
+                { 'caption': 'DO Region',  'value': do_region_slug },
+                { 'caption': 'DO Size',    'value': do_size_slug },
+                { 'caption': 'DO Tags',    'value': do_tags | join(', ') if do_tags is defined else '' },
+                { 'caption': 'Private IP', 'value': do_private_ip }
+              ],
+              'notes': (
+                'Auto-generated by Ansible\n'
+                ~ 'Region: ' ~ do_region_slug ~ '\n'
+                ~ 'CPU: ' ~ (do_vcpus | default('?') | string) ~ ' vCPUs\n'
+                ~ 'RAM: ' ~ ((do_memory | default(0)) // 1024 | string) ~ ' GB\n'
+                ~ 'Disk: ' ~ (do_disk | default('?') | string) ~ ' GB\n'
+                ~ 'Tags: ' ~ (do_tags | default([]) | join(', ')) ~ '\n'
+                ~ 'OS Image: ' ~ (do_image.description | default('')) ~ '\n'
+                ~ 'Updated: ' ~ ansible_date_time.iso8601
+              )
+            })
+          }}
+
+    - name: Create configuration when absent
+      when: cw_lookup.json | length == 0
+      uri:
+        url: "{{ cw_base_url }}/company/configurations"
+        method: POST
+        headers:
+          Authorization: "{{ cw_auth_header }}"
+          clientId: "{{ cw_client_id }}"
+          Content-Type: "application/json"
+        body: "{{ cw_payload }}"
+        body_format: json
+        status_code: 201
+        validate_certs: yes
+        return_content: yes
+      register: cw_create
+
+    - name: Update configuration when present
+      when: cw_lookup.json | length > 0
+      uri:
+        url: "{{ cw_base_url }}/company/configurations/{{ cw_lookup.json[0].id }}"
+        method: PATCH
+        headers:
+          Authorization: "{{ cw_auth_header }}"
+          clientId: "{{ cw_client_id }}"
+          Content-Type: "application/json"
+        body: "{{ cw_payload }}"
+        body_format: json
+        status_code: 200
+        validate_certs: yes
+        return_content: yes
+      register: cw_update
+
+    - name: Debug API result
+      debug:
+        msg: "{{ (cw_create.json if (cw_lookup.json | length == 0) else cw_update.json) }}"
