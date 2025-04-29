@@ -161,34 +161,16 @@
         validate_certs: yes
       register: cw_result
 
-    - name: Build JSON Patch document for update
-      set_fact:
-        cw_patch:
-          - op: replace
-            path: /notes
-            value: "Auto-generated {{ ansible_date_time.iso8601 }}"
-          - op: replace
-            path: /ipAddress
-            value: "{{ ansible_default_ipv4.address | default('') }}"
-          - op: replace
-            path: /customFields
-            value: |
-              [{"caption":"Droplet ID","value":"{{ do_id | default('') }}"},
-               {"caption":"DO Region","value":"{{ do_region.slug | default('') }}"},
-               {"caption":"DO Size","value":"{{ do_size.slug | default('') }}"},
-               {"caption":"DO Tags","value":"{{ do_tags | join(', ') if do_tags is defined else '' }}"},
-               {"caption":"Private IP","value":"{{ (do_networks.v4 | selectattr('type','equalto','private') | map(attribute='ip_address') | list | first) | default('') }}"}]
-
-    - name: Patch configuration when present
+    - name: Update configuration when present
       when: cw_search.json | length > 0
       uri:
         url: "{{ cw_base_url }}/company/configurations/{{ cw_search.json[0].id }}"
-        method: PATCH
+        method: PUT
         headers:
           Authorization: "{{ cw_auth_header }}"
           clientId: "{{ cw_client_id }}"
-          Content-Type: "application/json-patch+json"
-        body: "{{ cw_patch }}"
+          Content-Type: "application/json"
+        body: "{{ cw_payload }}"
         body_format: json
         status_code: 200
         return_content: yes
@@ -196,5 +178,7 @@
       register: cw_result
 
     - name: Show CW response for create/update
+      debug:
+        var: cw_result.json
       debug:
         var: cw_result.json
