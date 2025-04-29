@@ -1,66 +1,55 @@
 ---
 # Playbook: sync_connectwise_minimal.yml
-# Purpose: **Clean, minimal** version that only **creates** a ConnectWise
-#          Configuration for each host (no update path yet). Simpler Jinja,
-#          no merge‑keys, no multiline concatenations.
-#
-# How it works
-# 1. Reads CW auth from four env vars.
-# 2. Gets Company by **identifier** (tag `company:<IDENT>`).
-# 3. Builds a small payload with core facts + custom fields.
-# 4. POSTs to /company/configurations.
-#
-# Once this runs successfully, we can add PATCH logic.
-# ----------------------------------------------------
+# Purpose: Create or update a ConnectWise Manage "Configuration" record
+#          for each host with minimal fields.
+# How it works:
+#   1. Auth via env vars
+#   2. Lookup Company by tag identifier
+#   3. Search by deviceIdentifier
+#   4. Build full payload (cw_payload)
+#   5. POST if absent, PUT if present
 
-- name: Create ConnectWise Configuration (minimal)
+- name: Sync host facts to ConnectWise Manage configuration
   hosts: all
   gather_facts: yes
 
   vars:
     cw_base_url: "https://api-na.myconnectwise.net/v4_6_release/apis/3.0"
 
-    # Auth – *must* be set in environment or inventory vars
-    cw_company_id: "{{ lookup('env','CW_COMPANY_ID') }}"
-    cw_public_key: "{{ lookup('env','CW_PUBLIC_KEY') }}"
-    cw_private_key: "{{ lookup('env','CW_PRIVATE_KEY') }}"
-    cw_client_id:  "{{ lookup('env','CW_CLIENT_ID') }}"
+    # Auth (env vars)
+    cw_company_id:   "{{ lookup('env','CW_COMPANY_ID') }}"
+    cw_public_key:   "{{ lookup('env','CW_PUBLIC_KEY') }}"
+    cw_private_key:  "{{ lookup('env','CW_PRIVATE_KEY') }}"
+    cw_client_id:    "{{ lookup('env','CW_CLIENT_ID') }}"
 
-    # Fixed IDs (hard‑code or pass via --extra-vars)
-    cw_config_type_name: "Droplet"   # use name; CW will resolve it
-    cw_status_id: 5                  # e.g. Active status
+    # Configuration Type (name and numeric ID)
+    cw_config_type_name: "Droplet"
+    cw_config_type_id:   123
+    cw_status_id:        5
 
   tasks:
 
-    ###################################################################
-    # 1. Sanity checks
-    ###################################################################
-
-    - name: Abort if any CW credential is missing
+    - name: Validate CW credentials
       fail:
-        msg: "CW credentials missing (COMPANY_ID, PUBLIC_KEY, PRIVATE_KEY, CLIENT_ID)."
-      when: cw_company_id == '' or cw_public_key == '' or cw_private_key == '' or cw_client_id == ''
+        msg: "One or more ConnectWise credentials are missing."
+      when: cw_company_id=='' or cw_public_key=='' or cw_private_key=='' or cw_client_id==''
 
-    - name: Extract company identifier from tag (company:<IDENT>)
+    - name: Extract Company identifier from tag
       set_fact:
         cw_company_ident: >-
           {{ (do_tags | default([]) | select('match','^company:') | map('regex_replace','^company:','') | list | first | default('')) }}
 
-    - name: Abort if no company identifier tag found
+    - name: Fail if no company tag
       fail:
         msg: "Droplet lacks 'company:<IDENT>' tag."
       when: cw_company_ident == ''
 
-    - name: Compute basic facts
+    - name: Compute helper facts
       set_fact:
-        cw_device_uuid: "{{ ansible_product_uuid | default(ansible_machine_id | default(inventory_hostname)) }}"
+        cw_device_uuid: "{{ do_id | default(ansible_product_uuid | default(inventory_hostname)) }}"
         cw_auth_header: "Basic {{ (cw_company_id ~ '+' ~ cw_public_key ~ ':' ~ cw_private_key)|b64encode }}"
 
-    ###################################################################
-    # 2. Lookup Company ID by identifier
-    ###################################################################
-
-    - name: Get CW Company by identifier
+    - name: Lookup ConnectWise Company by identifier
       uri:
         url: "{{ cw_base_url }}/company/companies?conditions=identifier='{{ cw_company_ident }}'"
         method: GET
@@ -72,21 +61,16 @@
         validate_certs: yes
       register: cw_company
 
-    - name: Abort if company not found
+    - name: Fail if Company not found
       fail:
-        msg: "Company identifier '{{ cw_company_ident }}' not found in ConnectWise."
+        msg: "Company identifier '{{ cw_company_ident }}' not found."
       when: cw_company.json | length == 0
 
-    - name: Set company ID fact
+    - name: Set Company ID
       set_fact:
         cw_company_id_num: "{{ cw_company.json[0].id }}"
 
-    ###################################################################
-    ###################################################################
-    # 3. Check if configuration already exists (by deviceIdentifier)
-    ###################################################################
-
-    - name: Search for existing configuration by deviceIdentifier
+    - name: Search existing configuration by deviceIdentifier
       uri:
         url: "{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier='{{ cw_device_uuid }}'"
         method: GET
@@ -98,54 +82,35 @@
         validate_certs: yes
       register: cw_search
 
-    ###################################################################
-    # 4. Build payload (simple dict)
-    ###################################################################
-
-    - name: Build configuration payload
+    - name: Build full configuration payload
       set_fact:
-        cw_payload: >-
-          {{ {
-            'name': inventory_hostname,
-            'deviceIdentifier': cw_device_uuid,
-            'type': ( cw_search.json|length > 0 and cw_search.json[0].type is defined )
-                     | ternary({ 'id': cw_search.json[0].type.id, 'name': cw_search.json[0].type.name },
-                              { 'name': cw_config_type_name }),
-            'status': { 'id': cw_status_id },
-            'company': { 'id': cw_company_id_num },
-            'ipAddress': ansible_default_ipv4.address | default(''),
-            'notes': 'Auto-generated ' ~ ansible_date_time.iso8601,
-            'customFields': [
-              { 'caption': 'Droplet ID', 'value': do_id | default('') },
-              { 'caption': 'DO Region',  'value': do_region.slug | default('') },
-              { 'caption': 'DO Size',    'value': do_size.slug | default('') },
-              { 'caption': 'DO Tags',    'value': (do_tags | join(', ') if do_tags is defined else '') },
-              { 'caption': 'Private IP', 'value': (do_networks.v4 | selectattr('type','equalto','private') | map(attribute='ip_address') | list | first) | default('') }
-            ]
-          } }}
+        cw_payload:
+          name: "{{ inventory_hostname }}"
+          deviceIdentifier: "{{ cw_device_uuid }}"
+          type:
+            id:   "{{ cw_config_type_id }}"
+            name: "{{ cw_config_type_name }}"
+          status:
+            id: "{{ cw_status_id }}"
+          company:
+            id: "{{ cw_company_id_num }}"
+          ipAddress: "{{ ansible_default_ipv4.address | default('') }}"
+          notes: >-
+            Auto-generated by Ansible at {{ ansible_date_time.iso8601 }}
+          customFields:
+            - caption: "Droplet ID"
+              value: "{{ do_id | default('') }}"
+            - caption: "DO Region"
+              value: "{{ do_region.slug | default('') }}"
+            - caption: "DO Size"
+              value: "{{ do_size.slug | default('') }}"
+            - caption: "DO Tags"
+              value: "{{ do_tags | join(', ') if do_tags is defined else '' }}"
+            - caption: "Private IP"
+              value: >-
+                {{ (do_networks.v4 | selectattr('type','equalto','private') | map(attribute='ip_address') | list | first) | default('') }}
 
-    ###################################################################
-    # 5. Create OR Update
-    ################################################################### (by deviceIdentifier)
-    ###################################################################
-
-    - name: Search for existing configuration by deviceIdentifier
-      uri:
-        url: "{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier='{{ cw_device_uuid }}'"
-        method: GET
-        headers:
-          Authorization: "{{ cw_auth_header }}"
-          clientId: "{{ cw_client_id }}"
-          Accept: "application/json"
-        return_content: yes
-        validate_certs: yes
-      register: cw_search
-
-    ###################################################################
-    # 5. Create OR Update
-    ###################################################################
-
-    - name: Create configuration (when absent)
+    - name: Create configuration when absent
       when: cw_search.json | length == 0
       uri:
         url: "{{ cw_base_url }}/company/configurations"
@@ -161,40 +126,22 @@
         validate_certs: yes
       register: cw_result
 
-    - name: Build update payload for existing configuration
-      set_fact:
-        cw_update_payload:
-          notes: "Auto-generated {{ ansible_date_time.iso8601 }}"
-          ipAddress: "{{ ansible_default_ipv4.address | default('') }}"
-          customFields:
-            - caption: "Droplet ID"
-              value: "{{ do_id | default('') }}"
-            - caption: "DO Region"
-              value: "{{ do_region.slug | default('') }}"
-            - caption: "DO Size"
-              value: "{{ do_size.slug | default('') }}"
-            - caption: "DO Tags"
-              value: "{{ do_tags | join(', ') if do_tags is defined else '' }}"
-            - caption: "Private IP"
-              value: >-
-                {{ (do_networks.v4 | selectattr('type','equalto','private') | map(attribute='ip_address') | list | first) | default('') }}
-
     - name: Update configuration when present
       when: cw_search.json | length > 0
       uri:
         url: "{{ cw_base_url }}/company/configurations/{{ cw_search.json[0].id }}"
-        method: PATCH
+        method: PUT
         headers:
           Authorization: "{{ cw_auth_header }}"
           clientId: "{{ cw_client_id }}"
           Content-Type: "application/json"
-        body: "{{ cw_update_payload }}"
+        body: "{{ cw_payload }}"
         body_format: json
         status_code: 200
         return_content: yes
         validate_certs: yes
       register: cw_result
 
-    - name: Show CW response for create/update
+    - name: Show CW response
       debug:
         var: cw_result.json
