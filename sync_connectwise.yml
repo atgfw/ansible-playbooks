@@ -98,12 +98,41 @@
             id: "{{ cw_company_id_num }}"
           ipAddress: "{{ ansible_default_ipv4.address | default('') }}"
           notes: "Auto‑generated {{ ansible_date_time.iso8601 }}"
+          customFields:
+            - caption: "Droplet ID"
+              value: "{{ do_id | default('') }}"
+            - caption: "DO Region"
+              value: "{{ do_region.slug | default('') }}"
+            - caption: "DO Size"
+              value: "{{ do_size.slug | default('') }}"
+            - caption: "DO Tags"
+              value: "{{ do_tags | join(', ') if do_tags is defined else '' }}"
+            - caption: "Private IP"
+              value: >-
+                {{ (do_networks.v4 | selectattr('type','equalto','private') | map(attribute='ip_address') | list | first) | default('') }}
 
     ###################################################################
-    # 4. Create configuration (POST)
+    # 4. Check if configuration already exists (by deviceIdentifier)
     ###################################################################
 
-    - name: Create configuration
+    - name: Search for existing configuration by deviceIdentifier
+      uri:
+        url: "{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier='{{ cw_device_uuid }}'"
+        method: GET
+        headers:
+          Authorization: "{{ cw_auth_header }}"
+          clientId: "{{ cw_client_id }}"
+          Accept: "application/json"
+        return_content: yes
+        validate_certs: yes
+      register: cw_search
+
+    ###################################################################
+    # 5. Create OR Update
+    ###################################################################
+
+    - name: Create configuration (when absent)
+      when: cw_search.json | length == 0
       uri:
         url: "{{ cw_base_url }}/company/configurations"
         method: POST
@@ -116,8 +145,24 @@
         status_code: 201
         return_content: yes
         validate_certs: yes
-      register: cw_create
+      register: cw_result
+
+    - name: Update configuration (when present)
+      when: cw_search.json | length > 0
+      uri:
+        url: "{{ cw_base_url }}/company/configurations/{{ cw_search.json[0].id }}"
+        method: PATCH
+        headers:
+          Authorization: "{{ cw_auth_header }}"
+          clientId: "{{ cw_client_id }}"
+          Content-Type: "application/json"
+        body: "{{ cw_payload }}"
+        body_format: json
+        status_code: 200
+        return_content: yes
+        validate_certs: yes
+      register: cw_result
 
     - name: Show CW response
       debug:
-        var: cw_create.json
+        var: cw_result.json
