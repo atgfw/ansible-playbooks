@@ -90,7 +90,7 @@
         cw_payload:
           name: "{{ inventory_hostname }}"
           deviceIdentifier: "{{ cw_device_uuid }}"
-          configurationType:
+          type:
             name: "{{ cw_config_type_name }}"
           status:
             id: "{{ cw_status_id }}"
