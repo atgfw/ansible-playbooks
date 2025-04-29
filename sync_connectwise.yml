@@ -91,6 +91,7 @@
           name: "{{ inventory_hostname }}"
           deviceIdentifier: "{{ cw_device_uuid }}"
           type:
+            id: "{{ (cw_search.json[0].type.id if (cw_search is defined and cw_search.json | length > 0 and cw_search.json[0].type is defined) else '') }}"
             name: "{{ cw_config_type_name }}"
           status:
             id: "{{ cw_status_id }}"
