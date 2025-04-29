@@ -22,9 +22,9 @@
     cw_private_key:  "{{ lookup('env','CW_PRIVATE_KEY') }}"
     cw_client_id:    "{{ lookup('env','CW_CLIENT_ID') }}"
 
-    # Configuration Type (name and numeric ID)
-    cw_config_type_name: "Droplet"
-    cw_config_type_id:   123
+    # Configuration Type (name)
+    cw_config_type_name: "Droplet"   # human-friendly name
+# Status ID
     cw_status_id:        5
 
   tasks:
@@ -70,7 +70,28 @@
       set_fact:
         cw_company_id_num: "{{ cw_company.json[0].id }}"
 
-    - name: Search existing configuration by deviceIdentifier
+    - name: Lookup Configuration Type by name
+      uri:
+        url: "{{ cw_base_url }}/company/configurationTypes?conditions=name='{{ cw_config_type_name }}'"
+        method: GET
+        headers:
+          Authorization: "{{ cw_auth_header }}"
+          clientId: "{{ cw_client_id }}"
+          Accept: "application/json"
+        return_content: yes
+        validate_certs: yes
+      register: cw_type
+
+    - name: Fail if configuration type not found
+      fail:
+        msg: "Configuration Type '{{ cw_config_type_name }}' not found in ConnectWise."
+      when: cw_type.json | length == 0
+
+    - name: Set Configuration Type ID
+      set_fact:
+        cw_config_type_id: "{{ cw_type.json[0].id }}"
+
+    - name: Search existing configuration by deviceIdentifier by deviceIdentifier
       uri:
         url: "{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier='{{ cw_device_uuid }}'"
         method: GET
