@@ -22,10 +22,9 @@
     cw_private_key:  "{{ lookup('env','CW_PRIVATE_KEY') }}"
     cw_client_id:    "{{ lookup('env','CW_CLIENT_ID') }}"
 
-    # Configuration Type (name)
-    cw_config_type_name: "Droplet"   # human-friendly name
-# Status ID
-    cw_status_id:        5
+    # Configuration Type (name only)
+    cw_config_type_name: "Droplet"
+    cw_status_id:        5        5
 
   tasks:
 
