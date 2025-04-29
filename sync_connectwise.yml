@@ -151,7 +151,7 @@
       when: cw_search.json | length > 0
       uri:
         url: "{{ cw_base_url }}/company/configurations/{{ cw_search.json[0].id }}"
-        method: PATCH
+        method: PUT
         headers:
           Authorization: "{{ cw_auth_header }}"
           clientId: "{{ cw_client_id }}"
