@@ -93,9 +93,9 @@
           configurationType:
             name: "{{ cw_config_type_name }}"
           status:
-            id: {{ cw_status_id }}
+            id: "{{ cw_status_id }}"
           company:
-            id: {{ cw_company_id_num }}
+            id: "{{ cw_company_id_num }}"
           ipAddress: "{{ ansible_default_ipv4.address | default('') }}"
           notes: "Auto‑generated {{ ansible_date_time.iso8601 }}"
 
