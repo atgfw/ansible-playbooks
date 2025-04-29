@@ -1,128 +1,123 @@
 ---
-# Playbook: sync_connectwise.yml
-# Purpose: Create or update a ConnectWise Manage "Configuration" record for
-#          each DigitalOcean Droplet, using facts gathered at runtime.
+# Playbook: sync_connectwise_minimal.yml
+# Purpose: **Clean, minimal** version that only **creates** a ConnectWise
+#          Configuration for each host (no update path yet). Simpler Jinja,
+#          no merge‑keys, no multiline concatenations.
 #
-# Highlights (v10)
-# ──────────────────
-# • **YAML‑safe notes string** – The notes field is now a multiline scalar
-#   (`|`) that embeds inline Jinja, eliminating the quote‑balancing errors.
-# • Removed accidental duplicate lines in previous payload.
+# How it works
+# 1. Reads CW auth from four env vars.
+# 2. Gets Company by **identifier** (tag `company:<IDENT>`).
+# 3. Builds a small payload with core facts + custom fields.
+# 4. POSTs to /company/configurations.
 #
-- name: Sync host facts to ConnectWise Manage configuration
+# Once this runs successfully, we can add PATCH logic.
+# ----------------------------------------------------
+
+- name: Create ConnectWise Configuration (minimal)
   hosts: all
   gather_facts: yes
 
   vars:
     cw_base_url: "https://api-na.myconnectwise.net/v4_6_release/apis/3.0"
 
+    # Auth – *must* be set in environment or inventory vars
     cw_company_id: "{{ lookup('env','CW_COMPANY_ID') }}"
     cw_public_key: "{{ lookup('env','CW_PUBLIC_KEY') }}"
     cw_private_key: "{{ lookup('env','CW_PRIVATE_KEY') }}"
     cw_client_id:  "{{ lookup('env','CW_CLIENT_ID') }}"
 
-    cw_default_company_tag: ""
-    cw_location_id: ""
-
-    cw_config_type_name: "Droplet"
-    cw_config_type_id: ""
-    cw_status_id: 5
+    # Fixed IDs (hard‑code or pass via --extra-vars)
+    cw_config_type_name: "Droplet"   # use name; CW will resolve it
+    cw_status_id: 5                  # e.g. Active status
 
   tasks:
 
-    # 1) Validation ------------------------------------------------------
+    ###################################################################
+    # 1. Sanity checks
+    ###################################################################
 
-    - name: Ensure CW_CLIENT_ID env var is present
-      when: cw_client_id | length == 0
+    - name: Abort if any CW credential is missing
       fail:
-        msg: "CW_CLIENT_ID env var required."
+        msg: "CW credentials missing (COMPANY_ID, PUBLIC_KEY, PRIVATE_KEY, CLIENT_ID)."
+      when: cw_company_id == '' or cw_public_key == '' or cw_private_key == '' or cw_client_id == ''
 
-    - name: Extract company tag
+    - name: Extract company identifier from tag (company:<IDENT>)
       set_fact:
-        cw_company_tag_value: >-
-          {{ (do_tags | default([]) | select('match','^company:') | list | first | default(cw_default_company_tag))
-             | regex_replace('^company:','') }}
+        cw_company_ident: >-
+          {{ (do_tags | default([]) | select('match','^company:') | map('regex_replace','^company:','') | list | first | default('')) }}
 
-    - name: Fail if company tag missing
-      when: cw_company_tag_value | length == 0
+    - name: Abort if no company identifier tag found
       fail:
-        msg: "No company tag and no default."
+        msg: "Droplet lacks 'company:<IDENT>' tag."
+      when: cw_company_ident == ''
 
-    - name: Build auth header
+    - name: Compute basic facts
       set_fact:
+        cw_device_uuid: "{{ ansible_product_uuid | default(ansible_machine_id | default(inventory_hostname)) }}"
         cw_auth_header: "Basic {{ (cw_company_id ~ '+' ~ cw_public_key ~ ':' ~ cw_private_key)|b64encode }}"
 
-    # 2) Resolve company -----------------------------------------------
+    ###################################################################
+    # 2. Lookup Company ID by identifier
+    ###################################################################
 
-    - name: Lookup company by identifier
+    - name: Get CW Company by identifier
       uri:
-        url: "{{ cw_base_url }}/company/companies?conditions=identifier='{{ cw_company_tag_value }}'"
+        url: "{{ cw_base_url }}/company/companies?conditions=identifier='{{ cw_company_ident }}'"
+        method: GET
         headers:
           Authorization: "{{ cw_auth_header }}"
           clientId: "{{ cw_client_id }}"
           Accept: "application/json"
-        method: GET
-        validate_certs: yes
         return_content: yes
-      register: cw_company_lookup_id
-
-    - name: Lookup company by name LIKE if needed
-      when: cw_company_lookup_id.json | length == 0
-      uri:
-        url: "{{ cw_base_url }}/company/companies?conditions=name like '%{{ cw_company_tag_value }}%'"
-        headers:
-          Authorization: "{{ cw_auth_header }}"
-          clientId: "{{ cw_client_id }}"
-          Accept: "application/json"
-        method: GET
         validate_certs: yes
-        return_content: yes
-      register: cw_company_lookup_name
+      register: cw_company
 
-    - name: Set company id fact
-      set_fact:
-        cw_company_target_id: >-
-          {{ (cw_company_lookup_id.json | length > 0) | ternary(cw_company_lookup_id.json[0].id, cw_company_lookup_name.json[0].id | default(None)) }}
-
-    - name: Fail if company not resolved
-      when: cw_company_target_id is not defined
+    - name: Abort if company not found
       fail:
-        msg: "Company '{{ cw_company_tag_value }}' not found in CW."
+        msg: "Company identifier '{{ cw_company_ident }}' not found in ConnectWise."
+      when: cw_company.json | length == 0
 
-    # 3) Helper facts ----------------------------------------------------
-
-    - name: Compute safe helper values
+    - name: Set company ID fact
       set_fact:
-        cw_device_uuid: >-
-          {{ do_id | default(ansible_product_uuid | default(ansible_machine_id | default(inventory_hostname))) }}
-        safe_region: "{{ do_region.slug | default('') }}"
-        safe_public_ip: >-
-          {{ (do_networks.v4 | selectattr('type','equalto','public') | list | first).ip_address
-             if (do_networks is defined and (do_networks.v4 | default([])) | length > 0) else (ansible_host | default('')) }}
-        safe_mac: >-
-          {{ (ansible_default_ipv4.macaddress if (ansible_default_ipv4 is defined and 'macaddress' in ansible_default_ipv4) else '') }}
-        safe_private_ip: >-
-          {{ (do_networks.v4 | selectattr('type','equalto','private') | list | first).ip_address
-             if (do_networks is defined and (do_networks.v4 | default([])) | length > 0) else '' }}
-        safe_size: "{{ do_size.slug | default('') }}"
+        cw_company_id_num: "{{ cw_company.json[0].id }}"
 
-    - name: Query existing configuration
+    ###################################################################
+    # 3. Build payload (simple dict)
+    ###################################################################
+
+    - name: Build configuration payload
+      set_fact:
+        cw_payload:
+          name: "{{ inventory_hostname }}"
+          deviceIdentifier: "{{ cw_device_uuid }}"
+          configurationType:
+            name: "{{ cw_config_type_name }}"
+          status:
+            id: {{ cw_status_id }}
+          company:
+            id: {{ cw_company_id_num }}
+          ipAddress: "{{ ansible_default_ipv4.address | default('') }}"
+          notes: "Auto‑generated {{ ansible_date_time.iso8601 }}"
+
+    ###################################################################
+    # 4. Create configuration (POST)
+    ###################################################################
+
+    - name: Create configuration
       uri:
-        url: "{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier='{{ cw_device_uuid }}'"
+        url: "{{ cw_base_url }}/company/configurations"
+        method: POST
         headers:
           Authorization: "{{ cw_auth_header }}"
           clientId: "{{ cw_client_id }}"
-          Accept: "application/json"
-        method: GET
-        validate_certs: yes
+          Content-Type: "application/json"
+        body: "{{ cw_payload }}"
+        body_format: json
+        status_code: 201
         return_content: yes
-      register: cw_lookup
+        validate_certs: yes
+      register: cw_create
 
-    # 4) Relationship dict ----------------------------------------------
-
-    - name: Build relationship dict
-      set_fact:
-        cw_relationships: >-
-          {{
-            {
-              'status': { 'id': cw_status_id | int }
+    - name: Show CW response
+      debug:
+        var: cw_create.json
