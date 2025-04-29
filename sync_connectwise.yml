@@ -94,7 +94,7 @@
 
     - name: Search for existing configuration by deviceIdentifier
       uri:
-        url: "{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier='{{ cw_device_uuid }}'"
+        url: "{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier=\"{{ cw_device_uuid }}\""
         method: GET
         headers:
           Authorization: "{{ cw_auth_header }}"
