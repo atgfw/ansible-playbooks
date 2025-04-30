@@ -95,10 +95,10 @@
             id: "{{ cw_company_id_num }}"
           manufacturer: "DigitalOcean"
           modelNumber: "{{ do_size.slug | default('') }}"
-          serialNumber: "{{ do_id }}"
-          coreCount: {{ do_vcpus | default(0) }}
-          ram: {{ do_memory | default(0) }}
-          hardDrive: {{ do_disk | default(0) }}
+          serialNumber: "{{ do_id | default('') }}"
+          coreCount: "{{ do_vcpus | default(0) }}"
+          ram: "{{ do_memory | default(0) }}"
+          hardDrive: "{{ do_disk | default(0) }}"
           osType: "{{ distro | default(ansible_distribution) }}"
           osInfo: "{{ do_image.description | default('') }}"
           ipAddress: "{{ (do_networks.v4 | selectattr('type','equalto','public') | map(attribute='ip_address') | list | first) | default(ansible_default_ipv4.address | default('')) }}"
@@ -126,7 +126,7 @@
           Authorization: "{{ cw_auth_header }}"
           clientId: "{{ cw_client_id }}"
           Content-Type: "application/json"
-        body: "{{ cw_create_payload }}"
+        body: "{{ cw_payload }}"
         body_format: json
         status_code: 201
         return_content: yes
@@ -142,7 +142,7 @@
           Authorization: "{{ cw_auth_header }}"
           clientId: "{{ cw_client_id }}"
           Content-Type: "application/json"
-        body: "{{ cw_create_payload }}"
+        body: "{{ cw_payload }}"
         body_format: json
         status_code: 200
         return_content: yes
