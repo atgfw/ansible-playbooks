@@ -23,7 +23,6 @@
     cw_status_name:      "Active"   # Name for the desired status
 
   tasks:
-
     - name: Validate ConnectWise credentials
       fail:
         msg: "One or more ConnectWise credentials are missing."
@@ -32,8 +31,10 @@
     - name: Extract Company identifier from Droplet tags
       set_fact:
         cw_company_ident: >-
-          {{ (do_tags | default([]) | select('match','^company:')
-              | map('regex_replace','^company:','') | list | first | default('')) }}
+          {{ (do_tags | default([])
+              | select('match','^company:')
+              | map('regex_replace','^company:','')
+              | list | first | default('')) }}
 
     - name: Fail if no company tag present
       fail:
@@ -69,7 +70,7 @@
 
     - name: Search for existing configuration by deviceIdentifier
       uri:
-        url: "{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier='{{ cw_device_uuid }}'"
+        url: "{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier=\"{{ cw_device_uuid }}\""
         method: GET
         headers:
           Authorization: "{{ cw_auth_header }}"
@@ -79,7 +80,7 @@
         validate_certs: yes
       register: cw_search
 
-    - name: Build minimal create payload
+    - name: Build minimal payload
       set_fact:
         cw_create_payload:
           name: "{{ inventory_hostname }}"
@@ -108,20 +109,6 @@
         return_content: yes
         validate_certs: yes
       register: cw_result
-      when: cw_search.json | length == 0
-      uri:
-        url: "{{ cw_base_url }}/company/configurations"
-        method: POST
-        headers:
-          Authorization: "{{ cw_auth_header }}"
-          clientId: "{{ cw_client_id }}"
-          Content-Type: "application/json"
-        body: "{{ cw_payload }}"
-        body_format: json
-        status_code: 201
-        return_content: yes
-        validate_certs: yes
-      register: cw_result
 
     - name: Update configuration when present
       when: cw_search.json | length > 0
@@ -132,7 +119,7 @@
           Authorization: "{{ cw_auth_header }}"
           clientId: "{{ cw_client_id }}"
           Content-Type: "application/json"
-        body: "{{ cw_payload }}"
+        body: "{{ cw_create_payload }}"
         body_format: json
         status_code: 200
         return_content: yes
