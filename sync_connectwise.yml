@@ -16,9 +16,10 @@
     cw_private_key: "{{ lookup('env','CW_PRIVATE_KEY') }}"
     cw_client_id:   "{{ lookup('env','CW_CLIENT_ID') }}"
 
-    # Configuration parameters
-    cw_config_type_name: "Droplet"   # The name of the CW Configuration Type
-    cw_status_id:        5            # Numeric ID for the desired status
+    # Configuration parameters (both name and id required)
+    cw_config_type_id:   146        # Numeric ID of CW Configuration Type
+    cw_config_type_name: "Droplet"  # Name of the CW Configuration Type
+    cw_status_id:        2           # Numeric ID for the desired status
 
   tasks:
 
@@ -70,6 +71,7 @@
           name: "{{ inventory_hostname }}"
           deviceIdentifier: "{{ cw_device_uuid }}"
           type:
+            id:   "{{ cw_config_type_id }}"
             name: "{{ cw_config_type_name }}"
           status:
             id: "{{ cw_status_id }}"
@@ -94,7 +96,7 @@
 
     - name: Search for existing configuration by deviceIdentifier
       uri:
-        url: "{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier=\"{{ cw_device_uuid }}\""
+        url: '{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier="{{ cw_device_uuid }}"'
         method: GET
         headers:
           Authorization: "{{ cw_auth_header }}"
