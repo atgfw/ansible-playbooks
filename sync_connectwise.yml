@@ -48,7 +48,15 @@
 
     - name: Lookup ConnectWise Company by identifier
       uri:
-        url: "{{ cw_base_url }}/company/companies?conditions=deviceIdentifier='{{ cw_company_ident }}'"
+        url: "{{ cw_base_url }}/company/companies?conditions=identifier='{{ cw_company_ident }}'"
+        method: GET
+        headers:
+          Authorization: "{{ cw_auth_header }}"
+          clientId: "{{ cw_client_id }}"
+          Accept: "application/json"
+        return_content: yes
+        validate_certs: yes
+      register: cw_company_lookup }}'"
         method: GET
         headers:
           Authorization: "{{ cw_auth_header }}"
