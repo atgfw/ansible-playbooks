@@ -80,9 +80,9 @@
         validate_certs: yes
       register: cw_search
 
-    - name: Build minimal payload
+    - name: Build full payload
       set_fact:
-        cw_create_payload:
+        cw_payload:
           name: "{{ inventory_hostname }}"
           deviceIdentifier: "{{ cw_device_uuid }}"
           type:
@@ -93,6 +93,29 @@
             name: "{{ cw_status_name }}"
           company:
             id: "{{ cw_company_id_num }}"
+          manufacturer: "DigitalOcean"
+          modelNumber: "{{ do_size.slug | default('') }}"
+          serialNumber: "{{ do_id }}"
+          coreCount: {{ do_vcpus | default(0) }}
+          ram: {{ do_memory | default(0) }}
+          hardDrive: {{ do_disk | default(0) }}
+          osType: "{{ distro | default(ansible_distribution) }}"
+          osInfo: "{{ do_image.description | default('') }}"
+          ipAddress: "{{ (do_networks.v4 | selectattr('type','equalto','public') | map(attribute='ip_address') | list | first) | default(ansible_default_ipv4.address | default('')) }}"
+          macAddress: "{{ ansible_default_ipv4.macaddress | default('') }}"
+          networkName: "{{ do_name | default(inventory_hostname) }}"
+          customFields:
+            - caption: "Droplet ID"
+              value:   "{{ do_id | default('') }}"
+            - caption: "DO Region"
+              value:   "{{ do_region.slug | default('') }}"
+            - caption: "DO Size"
+              value:   "{{ do_size.slug | default('') }}"
+            - caption: "DO Tags"
+              value:   "{{ do_tags | join(', ') if do_tags is defined else '' }}"
+            - caption: "Private IP"
+              value: >-
+                {{ (do_networks.v4 | selectattr('type','equalto','private') | map(attribute='ip_address') | list | first) | default('') }}
 
     - name: Create configuration when absent
       when: cw_search.json | length == 0
