@@ -1,7 +1,7 @@
 ---
 # Playbook: sync_connectwise_minimal.yml
 # Purpose: Create or update a ConnectWise Manage "Configuration" record
-#          for each host with minimal fields.
+#          for each host with all relevant fields included.
 
 - name: Sync host facts to ConnectWise Manage configuration
   hosts: all
@@ -93,7 +93,8 @@
             name: "{{ cw_status_name }}"
           company:
             id: "{{ cw_company_id_num }}"
-          manufacturer: "DigitalOcean"
+          manufacturer:
+            name: "DigitalOcean"
           modelNumber: "{{ do_size.slug | default('') }}"
           serialNumber: "{{ do_id | default('') }}"
           coreCount: "{{ do_vcpus | default(0) }}"
