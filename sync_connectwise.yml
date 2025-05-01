@@ -122,7 +122,7 @@
             {{ disk.type }}: {{ disk.size.amount }} {{ disk.size.unit }}{{ ", " if not loop.last else "" }}
             {%- endfor %}
           installationDate: "{{ do_created_at }}"
-          osType:           "{{ distro | default('') }}"
+          osType:           "{{ ansible_lsb.description | default('') }}"
           osInfo:           "{{ do_image.description | default('') }}"
           modelNumber:      "{{ do_size.slug | default('') }}"
           serialNumber:     "{{ do_id | default('') }}"
