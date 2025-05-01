@@ -35,6 +35,7 @@
     cw_q_networking_throughput_id: 1376
     cw_q_hostname_id:              1377
     cw_q_fqdn_id:                  1378
+    cw_q_link_id:                  1379  # QuestionId for DO GUI link
 
   tasks:
     - name: Validate ConnectWise credentials
@@ -124,34 +125,46 @@
             id:   "{{ cw_config_type_id }}"
             name: "{{ cw_config_type_name }}"
           status:
-            id: "{{ (do_status | lower) in ['offline','archive'] and cw_inactive_status_id or cw_active_status_id }}"
+            id:   "{{ (do_status | lower) in ['offline','archive'] and cw_inactive_status_id or cw_active_status_id }}"
             name: "{{ (do_status | lower) in ['offline','archive'] and 'Inactive' or cw_status_name }}"
           company:
             id:   "{{ cw_company_id_num }}"
           vendor:
-            id: "{{ cw_vendor_id }}"
+            id:   "{{ cw_vendor_id }}"
           ram:              "{{ do_memory | default('') }}"
           localHardDrives: >-
             {%- for disk in do_size.disk_info | default([]) -%}
             {{ disk.type }}: {{ disk.size.amount }} {{ disk.size.unit }}{{ ", " if not loop.last else "" }}
             {%- endfor %}
-          installationDate: "{{ do_created_at | default('') }}"
+          installationDate: >-
+            {{ (tune2fs_output.stdout
+               | regex_search('Filesystem created:\s*(.*)', '\\\\1')
+               | to_datetime('%a %b %d %H:%M:%S %Y')
+             ).strftime('%Y-%m-%dT%H:%M:%S.000Z') }}
           osType:           "{{ distro | default('') }}"
           osInfo:           "{{ do_image.description | default('') }}"
           modelNumber:      "{{ do_size.slug | default('') }}"
           serialNumber:     "{{ do_id | default('') }}"
           cpuSpeed:         "{{ do_vcpus | default(0) }} cores"
           ipAddress:        "{{ ansible_host }}"
-          defaultGateway:   "{{ (do_networks.v4 | selectattr('type','equalto','public') | map(attribute='gateway') | list | first) | default('') }}"
+          defaultGateway:   "{{ (do_networks.v4
+                                  | selectattr('type','equalto','public')
+                                  | map(attribute='gateway')
+                                  | list | first)
+                                | default('') }}"
           questions:
             - questionId: "{{ cw_q_do_region_id }}"
               answer:     "{{ do_region.slug | default('') }}"
+            - questionId: "{{ cw_q_size_slug_id }}"
+              answer:     "{{ do_size.slug | default('') }}"
             - questionId: "{{ cw_q_do_tags_id }}"
               answer:     "{{ do_tags | join(', ') if do_tags is defined else '' }}"
             - questionId: "{{ cw_q_private_ip_id }}"
-              answer:     "{{ (do_networks.v4 | selectattr('type','equalto','private') | map(attribute='ip_address') | list | first) | default('') }}"
-            - questionId: "{{ cw_q_size_slug_id }}"
-              answer:     "{{ do_size.slug | default('') }}"
+              answer:     "{{ (do_networks.v4
+                                  | selectattr('type','equalto','private')
+                                  | map(attribute='ip_address')
+                                  | list | first)
+                                | default('') }}"
             - questionId: "{{ cw_q_price_monthly_id }}"
               answer:     "{{ do_size.price_monthly | default('') }}"
             - questionId: "{{ cw_q_networking_throughput_id }}"
@@ -160,6 +173,8 @@
               answer:     "{{ ansible_hostname | default('') }}"
             - questionId: "{{ cw_q_fqdn_id }}"
               answer:     "{{ ansible_fqdn | default('') }}"
+            - questionId: "{{ cw_q_link_id }}"
+              answer:     "https://cloud.digitalocean.com/droplets/{{ do_id }}/"
 
     - name: Create Configuration if absent
       when: cw_search.json | length == 0
