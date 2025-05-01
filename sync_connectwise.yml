@@ -21,6 +21,7 @@
     cw_config_type_name: "Droplet"  # Name of the CW Configuration Type
     cw_status_id:        2           # Numeric ID for the desired status
     cw_status_name:      "Active"   # Name for the desired status
+    cw_vendor_id:        20945      # Digital Ocean Vendor ID
 
     # Question IDs (from CW Setup Tables) for each custom question
     cw_q_do_region_id:    1370
@@ -100,10 +101,15 @@
             name: "{{ cw_status_name }}"
           company:
             id: "{{ cw_company_id_num }}"
-          manufacturer:
-            name: "DigitalOcean"
+          vendor:
+            id: "{{ cw_vendor_id }}"
+          ram: "{{ do_memory | default('') }}"
+          localHardDrives: "{{ do_size.disk | default('') }}"
+          osType: "{{ distro  | default('') }}"
+          osInfo: "{{do_image.name | default('') }}"
           modelNumber: "{{ do_size.slug | default('') }}"
           serialNumber: "{{ do_id | default('') }}"
+          cpuSpeed: "{{ do_vcpus | default(Unknown) }} cores"
           questions:
             - questionId: "{{ cw_q_do_region_id }}"
               answer:     "{{ do_region.slug | default('') }}"
@@ -111,10 +117,10 @@
               answer:     "{{ do_tags | join(', ') if do_tags is defined else '' }}"
             - questionId: "{{ cw_q_private_ip_id }}"
               answer:     "{{ (do_networks.v4 | selectattr('type','equalto','private') | map(attribute='ip_address') | list | first) | default('') }}"
-            - questionId: "{{ cw_q_core_count_id }}"
-              answer:     "{{ do_vcpus | default(0) }}"
-            - questionId: "{{ cw_q_disk_id }}"
-              answer:     "{{ do_disk | default(0) }}"
+            #- questionId: "{{ cw_q_core_count_id }}"
+            #  answer:     "{{ do_vcpus | default(0) }}"
+            #- questionId: "{{ cw_q_disk_id }}"
+            #  answer:     "{{ do_disk | default(0) }}"
 
     - name: Create configuration when absent
       when: cw_search.json | length == 0
