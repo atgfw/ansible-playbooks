@@ -34,6 +34,7 @@
     cw_q_hostname_id:              1377
     cw_q_fqdn_id:                  1378
     cw_q_link_id:                  1379  # QuestionId for DO GUI link
+    cw_q_backups_id:               1380  # QuestionId for backups
 
   tasks:
     - name: Validate ConnectWise credentials
@@ -155,6 +156,8 @@
               answer:     "{{ ansible_fqdn | default('') }}"
             - questionId: "{{ cw_q_link_id }}"
               answer:     "https://cloud.digitalocean.com/droplets/{{ do_id }}/"
+            - questionId: "{{ cw_q_backups_id }}"
+              answer:     "{{ 'True' if 'backups' in do_features else 'False' }}"
 
     - name: Create Configuration if absent
       when: cw_search.json | length == 0
