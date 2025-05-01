@@ -20,6 +20,9 @@
     cw_config_type_id:            146         # Numeric ID of CW Configuration Type
     cw_config_type_name:          "Droplet"  # Name of the CW Configuration Type
     cw_status_id:                 2           # Numeric ID for the desired status
+    cw_active_status_id:          2
+    cw_inactive_status_id:        3
+    cw_provisioning_status_id:    5
     cw_status_name:               "Active"   # Name for the desired status
     cw_vendor_id:                 20945       # DigitalOcean Vendor ID
 
@@ -112,14 +115,6 @@
       changed_when: false
       failed_when:  false
 
-    - name: Parse and format installation date
-      set_fact:
-        installation_date: >-
-          {{ (tune2fs_output.stdout
-             | regex_search('Filesystem created:\s*(.*)', '\\1')
-             | to_datetime('%a %b %d %H:%M:%S %Y')
-           ).strftime('%Y-%m-%dT%H:%M:%S.000Z') }}
-
     - name: Build full payload
       set_fact:
         cw_payload:
@@ -129,8 +124,8 @@
             id:   "{{ cw_config_type_id }}"
             name: "{{ cw_config_type_name }}"
           status:
-            id:   "{{ cw_status_id }}"
-            name: "{{ cw_status_name }}"
+            id: "{{ (do_status | lower) in ['offline','archive'] and cw_inactive_status_id or cw_active_status_id }}"
+            name: "{{ (do_status | lower) in ['offline','archive'] and 'Inactive' or cw_status_name }}"
           company:
             id:   "{{ cw_company_id_num }}"
           vendor:
@@ -140,7 +135,7 @@
             {%- for disk in do_size.disk_info | default([]) -%}
             {{ disk.type }}: {{ disk.size.amount }} {{ disk.size.unit }}{{ ", " if not loop.last else "" }}
             {%- endfor %}
-          installationDate: "{{ installation_date }}"
+          installationDate: "{{ do_created_at | default('') }}"
           osType:           "{{ distro | default('') }}"
           osInfo:           "{{ do_image.description | default('') }}"
           modelNumber:      "{{ do_size.slug | default('') }}"
