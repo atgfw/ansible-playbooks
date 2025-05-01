@@ -1,7 +1,7 @@
 ---
 # Playbook: sync_connectwise_minimal.yml
 # Purpose: Create or update a ConnectWise Manage "Configuration" record
-#          for each host, including question answers.
+#          for each host with all relevant fields included.
 
 - name: Sync host facts to ConnectWise Manage configuration
   hosts: all
@@ -17,18 +17,19 @@
     cw_client_id:   "{{ lookup('env','CW_CLIENT_ID') }}"
 
     # Configuration parameters
-    cw_config_type_id:   146        # Numeric ID of CW Configuration Type
-    cw_config_type_name: "Droplet"  # Name of the CW Configuration Type
-    cw_status_id:        2           # Numeric ID for the desired status
-    cw_status_name:      "Active"   # Name for the desired status
-    cw_vendor_id:        20945      # Digital Ocean Vendor ID
+    cw_config_type_id:            146        # Numeric ID of CW Configuration Type
+    cw_config_type_name:          "Droplet"  # Name of the CW Configuration Type
+    cw_status_id:                 2           # Numeric ID for the desired status
+    cw_status_name:               "Active"   # Name for the desired status
+    cw_vendor_id:                 20945      # Digital Ocean Vendor ID
 
     # Question IDs (from CW Setup Tables) for each custom question
-    cw_q_do_region_id:    1370
-    cw_q_do_tags_id:      1372
-    cw_q_private_ip_id:   1373
-    cw_q_core_count_id:   1375
-    cw_q_disk_id:         1371
+    cw_q_do_region_id:            1370
+    cw_q_do_tags_id:              1372
+    cw_q_private_ip_id:           1373
+    cw_q_size_slug_id:            1371  # QuestionId for DO Size Slug
+    cw_q_price_monthly_id:        1375  # QuestionId for DO Price Monthly
+    cw_q_networking_throughput_id:1376  # QuestionId for DO Networking Throughput
 
   tasks:
     - name: Validate ConnectWise credentials
@@ -104,12 +105,17 @@
           vendor:
             id: "{{ cw_vendor_id }}"
           ram: "{{ do_memory | default('') }}"
-          localHardDrives: "{{ do_size.disk | default('') }}"
+          localHardDrives: >-
+            {%- for disk in do_size.disk_info | default([]) -%}
+            {{ disk.type }}: {{ disk.size.amount }} {{ disk.size.unit }}{{ ", " if not loop.last else "" }}
+            {%- endfor %}
           osType: "{{ distro  | default('') }}"
-          osInfo: "{{do_image.name | default('') }}"
+          osInfo: "{{ do_image.description | default('') }}"
           modelNumber: "{{ do_size.slug | default('') }}"
           serialNumber: "{{ do_id | default('') }}"
-          cpuSpeed: "{{ do_vcpus | default(Unknown) }} cores"
+          cpuSpeed: "{{ do_vcpus | default(0) }} cores"
+          ipAddress: "{{ ansible_host }}"
+          defaultGateway: "{{ (do_networks.v4 | selectattr('type','equalto','public') | map(attribute='gateway') | list | first) | default('') }}"
           questions:
             - questionId: "{{ cw_q_do_region_id }}"
               answer:     "{{ do_region.slug | default('') }}"
@@ -117,10 +123,16 @@
               answer:     "{{ do_tags | join(', ') if do_tags is defined else '' }}"
             - questionId: "{{ cw_q_private_ip_id }}"
               answer:     "{{ (do_networks.v4 | selectattr('type','equalto','private') | map(attribute='ip_address') | list | first) | default('') }}"
-            #- questionId: "{{ cw_q_core_count_id }}"
-            #  answer:     "{{ do_vcpus | default(0) }}"
-            #- questionId: "{{ cw_q_disk_id }}"
-            #  answer:     "{{ do_disk | default(0) }}"
+            - questionId: "{{ cw_q_core_count_id }}"
+              answer:     "{{ do_vcpus | default(0) }}"
+            - questionId: "{{ cw_q_disk_id }}"
+              answer:     "{{ do_disk | default(0) }}"
+            - questionId: "{{ cw_q_size_slug_id }}"
+              answer:     "{{ do_size.slug | default('') }}"
+            - questionId: "{{ cw_q_price_monthly_id }}"
+              answer:     "{{ do_size.price_monthly | default('') }}"
+            - questionId: "{{ cw_q_networking_throughput_id }}"
+              answer:     "{{ do_size.networking_throughput | default('') }}"
 
     - name: Create configuration when absent
       when: cw_search.json | length == 0
