@@ -98,7 +98,7 @@
       set_fact:
         cw_payload:
           name:            "{{ inventory_hostname }}"
-          deviceIdentifier:"{{ cw_device_uuid }}"
+          deviceIdentifier: "{{ cw_device_uuid }}"
           type:
             id:   "{{ cw_config_type_id }}"
             name: "{{ cw_config_type_name }}"
