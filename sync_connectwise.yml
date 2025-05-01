@@ -24,18 +24,24 @@
     cw_vendor_id:                 20945       # DigitalOcean Vendor ID
 
     # Question IDs for DO-specific fields
-    cw_q_do_region_id:            1370
-    cw_q_do_tags_id:              1372
-    cw_q_private_ip_id:           1373
-    cw_q_size_slug_id:            1371
-    cw_q_price_monthly_id:        1375
+    cw_q_do_region_id:             1370
+    cw_q_do_tags_id:               1372
+    cw_q_private_ip_id:            1373
+    cw_q_size_slug_id:             1371
+    cw_q_price_monthly_id:         1375
     cw_q_networking_throughput_id: 1376
+    cw_q_hostname_id:              1377
+    cw_q_fqdn_id:                  1378
 
   tasks:
     - name: Validate ConnectWise credentials
       fail:
         msg: "Missing required ConnectWise environment variables"
-      when: cw_company_id == '' or cw_public_key == '' or cw_private_key == '' or cw_client_id == ''
+      when:
+        - cw_company_id == ''
+        - cw_public_key == ''
+        - cw_private_key == ''
+        - cw_client_id == ''
 
     - name: Extract Company identifier from Droplet tags
       set_fact:
@@ -55,14 +61,14 @@
 
     - name: Compute common facts
       set_fact:
-        cw_device_uuid: "{{ do_id | default(ansible_product_uuid | default(inventory_hostname)) }}"
-        cw_auth_header: >-
+        cw_device_uuid:   "{{ do_id | default(ansible_product_uuid | default(inventory_hostname)) }}"
+        cw_auth_header:   >-
           Basic {{ (cw_company_id ~ '+' ~ cw_public_key ~ ':' ~ cw_private_key) | b64encode }}
 
     - name: Lookup ConnectWise Company
       uri:
-        url: "{{ cw_base_url }}/company/companies?conditions=identifier='{{ cw_company_ident }}'"
-        method: GET
+        url:         "{{ cw_base_url }}/company/companies?conditions=identifier='{{ cw_company_ident }}'"
+        method:      GET
         headers:
           Authorization: "{{ cw_auth_header }}"
           clientId:     "{{ cw_client_id }}"
@@ -82,8 +88,8 @@
 
     - name: Search for existing Configuration
       uri:
-        url: "{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier='{{ cw_device_uuid }}'"
-        method: GET
+        url:         "{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier='{{ cw_device_uuid }}'"
+        method:      GET
         headers:
           Authorization: "{{ cw_auth_header }}"
           clientId:     "{{ cw_client_id }}"
@@ -92,10 +98,32 @@
         validate_certs: yes
       register: cw_search
 
-    - name: Build payload
+    - name: Determine root filesystem device
+      set_fact:
+        root_device: >-
+          {{ (ansible_mounts
+              | selectattr('mount','equalto','/')
+              | map(attribute='device')
+              | list)[0] }}
+
+    - name: Get filesystem creation timestamp
+      command:      "tune2fs -l {{ root_device }}"
+      register:     tune2fs_output
+      changed_when: false
+      failed_when:  false
+
+    - name: Parse and format installation date
+      set_fact:
+        installation_date: >-
+          {{ (tune2fs_output.stdout
+             | regex_search('Filesystem created:\s*(.*)', '\\1')
+             | strptime('%a %b %d %H:%M:%S %Y')
+             | strftime('%Y-%m-%dT%H:%M:%S.000Z')) }}
+
+    - name: Build full payload
       set_fact:
         cw_payload:
-          name:            "{{ inventory_hostname }}"
+          name:             "{{ inventory_hostname }}"
           deviceIdentifier: "{{ cw_device_uuid }}"
           type:
             id:   "{{ cw_config_type_id }}"
@@ -106,12 +134,13 @@
           company:
             id:   "{{ cw_company_id_num }}"
           vendor:
-            id:   "{{ cw_vendor_id }}"
+            id: "{{ cw_vendor_id }}"
           ram:              "{{ do_memory | default('') }}"
           localHardDrives: >-
             {%- for disk in do_size.disk_info | default([]) -%}
             {{ disk.type }}: {{ disk.size.amount }} {{ disk.size.unit }}{{ ", " if not loop.last else "" }}
             {%- endfor %}
+          installationDate: "{{ installation_date }}"
           osType:           "{{ distro | default('') }}"
           osInfo:           "{{ do_image.description | default('') }}"
           modelNumber:      "{{ do_size.slug | default('') }}"
@@ -132,38 +161,42 @@
               answer:     "{{ do_size.price_monthly | default('') }}"
             - questionId: "{{ cw_q_networking_throughput_id }}"
               answer:     "{{ do_size.networking_throughput | default('') }}"
+            - questionId: "{{ cw_q_hostname_id }}"
+              answer:     "{{ ansible_hostname | default('') }}"
+            - questionId: "{{ cw_q_fqdn_id }}"
+              answer:     "{{ ansible_fqdn | default('') }}"
 
     - name: Create Configuration if absent
       when: cw_search.json | length == 0
       uri:
-        url: "{{ cw_base_url }}/company/configurations"
-        method: POST
+        url:           "{{ cw_base_url }}/company/configurations"
+        method:        POST
         headers:
-          Authorization:  "{{ cw_auth_header }}"
-          clientId:       "{{ cw_client_id }}"
-          Content-Type:   "application/json"
-        body:            "{{ cw_payload }}"
-        body_format:     json
-        status_code:     201
-        return_content:  yes
-        validate_certs:  yes
-      register: cw_result
+          Authorization: "{{ cw_auth_header }}"
+          clientId:      "{{ cw_client_id }}"
+          Content-Type:  "application/json"
+        body:           "{{ cw_payload }}"
+        body_format:    json
+        status_code:    201
+        return_content: yes
+        validate_certs: yes
+      register:      cw_result
 
     - name: Update Configuration if present
       when: cw_search.json | length > 0
       uri:
-        url: "{{ cw_base_url }}/company/configurations/{{ cw_search.json[0].id }}"
-        method: PUT
+        url:           "{{ cw_base_url }}/company/configurations/{{ cw_search.json[0].id }}"
+        method:        PUT
         headers:
-          Authorization:  "{{ cw_auth_header }}"
-          clientId:       "{{ cw_client_id }}"
-          Content-Type:   "application/json"
-        body:            "{{ cw_payload }}"
-        body_format:     json
-        status_code:     200
-        return_content:  yes
-        validate_certs:  yes
-      register: cw_result
+          Authorization: "{{ cw_auth_header }}"
+          clientId:      "{{ cw_client_id }}"
+          Content-Type:  "application/json"
+        body:           "{{ cw_payload }}"
+        body_format:    json
+        status_code:    200
+        return_content: yes
+        validate_certs: yes
+      register:      cw_result
 
     - name: Show ConnectWise response
       debug:
