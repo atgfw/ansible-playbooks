@@ -31,7 +31,7 @@
     cw_q_disk_id:                 1371
     cw_q_size_slug_id:            1374
     cw_q_price_monthly_id:        1376
-    cw_q_networking_throughput_id:1377
+    cw_q_networking_throughput_id: 1377
 
   tasks:
     - name: Validate ConnectWise credentials
