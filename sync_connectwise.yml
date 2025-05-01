@@ -1,7 +1,7 @@
 ---
 # Playbook: sync_connectwise_minimal.yml
 # Purpose: Create or update a ConnectWise Manage "Configuration" record
-#          for each host with all relevant fields included.
+#          for each host, including question answers.
 
 - name: Sync host facts to ConnectWise Manage configuration
   hosts: all
@@ -21,6 +21,13 @@
     cw_config_type_name: "Droplet"  # Name of the CW Configuration Type
     cw_status_id:        2           # Numeric ID for the desired status
     cw_status_name:      "Active"   # Name for the desired status
+
+    # Question IDs (from CW Setup Tables) for each custom question
+    cw_q_do_region_id:    2
+    cw_q_do_tags_id:      4
+    cw_q_private_ip_id:   5
+    cw_q_core_count_id:   6
+    cw_q_disk_id:         3
 
   tasks:
     - name: Validate ConnectWise credentials
@@ -70,7 +77,7 @@
 
     - name: Search for existing configuration by deviceIdentifier
       uri:
-        url: "{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier=\"{{ cw_device_uuid }}\""
+        url: "{{ cw_base_url }}/company/configurations?conditions=deviceIdentifier='{{ cw_device_uuid }}'"
         method: GET
         headers:
           Authorization: "{{ cw_auth_header }}"
@@ -80,7 +87,7 @@
         validate_certs: yes
       register: cw_search
 
-    - name: Build full payload
+    - name: Build full payload with question answers
       set_fact:
         cw_payload:
           name: "{{ inventory_hostname }}"
@@ -97,23 +104,17 @@
             name: "DigitalOcean"
           modelNumber: "{{ do_size.slug | default('') }}"
           serialNumber: "{{ do_id | default('') }}"
-          ram: "{{ do_memory | default(0) }}"
-          osType: "{{ distro | default(ansible_distribution) }}"
-          osInfo: "{{ do_image.description | default('') }}"
-          ipAddress: "{{ ansible_host }}"
-          macAddress: "{{ ansible_default_ipv4.macaddress | default('') }}"
           questions:
-            - question: "DO Region"
-              answer: "{{ do_region.slug | default('') }}"
-            - question: "DO Tags"
-              answer: "{{ do_tags | join(', ') if do_tags is defined else '' }}"
-            - question: "Private IP"
-              answer: "{{ (do_networks.v4 | selectattr('type','equalto','private') | map(attribute='ip_address') | list | first) | default('') }}"
-            - question: "Core Count"
-              answer: "{{ do_vcpus | default(0) }}"
-            - question: "Disk"
-              answer: "{{ do_disk | default(0) }}"
-              
+            - questionId: {{ cw_q_do_region_id }}
+              answer:     "{{ do_region.slug | default('') }}"
+            - questionId: {{ cw_q_do_tags_id }}
+              answer:     "{{ do_tags | join(', ') if do_tags is defined else '' }}"
+            - questionId: {{ cw_q_private_ip_id }}
+              answer:     "{{ (do_networks.v4 | selectattr('type','equalto','private') | map(attribute='ip_address') | list | first) | default('') }}"
+            - questionId: {{ cw_q_core_count_id }}
+              answer:     "{{ do_vcpus | default(0) }}"
+            - questionId: {{ cw_q_disk_id }}
+              answer:     "{{ do_disk | default(0) }}"
 
     - name: Create configuration when absent
       when: cw_search.json | length == 0
@@ -124,7 +125,7 @@
           Authorization: "{{ cw_auth_header }}"
           clientId: "{{ cw_client_id }}"
           Content-Type: "application/json"
-        body: "{{ cw_payload }}"
+        body:        "{{ cw_payload }}"
         body_format: json
         status_code: 201
         return_content: yes
@@ -140,7 +141,7 @@
           Authorization: "{{ cw_auth_header }}"
           clientId: "{{ cw_client_id }}"
           Content-Type: "application/json"
-        body: "{{ cw_payload }}"
+        body:        "{{ cw_payload }}"
         body_format: json
         status_code: 200
         return_content: yes
