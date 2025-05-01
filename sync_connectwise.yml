@@ -102,7 +102,6 @@
           osInfo: "{{ do_image.description | default('') }}"
           ipAddress: "{{ ansible_host }}"
           macAddress: "{{ ansible_default_ipv4.macaddress | default('') }}"
-          networkName: "{{ do_name | default(inventory_hostname) }}"
           questions:
             - question: "DO Region"
               answer: "{{ do_region.slug | default('') }}"
