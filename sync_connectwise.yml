@@ -23,11 +23,11 @@
     cw_status_name:      "Active"   # Name for the desired status
 
     # Question IDs (from CW Setup Tables) for each custom question
-    cw_q_do_region_id:    2
-    cw_q_do_tags_id:      4
-    cw_q_private_ip_id:   5
-    cw_q_core_count_id:   6
-    cw_q_disk_id:         3
+    cw_q_do_region_id:    1370
+    cw_q_do_tags_id:      1372
+    cw_q_private_ip_id:   1373
+    cw_q_core_count_id:   1375
+    cw_q_disk_id:         1371
 
   tasks:
     - name: Validate ConnectWise credentials
