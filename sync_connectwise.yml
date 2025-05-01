@@ -105,15 +105,15 @@
           modelNumber: "{{ do_size.slug | default('') }}"
           serialNumber: "{{ do_id | default('') }}"
           questions:
-            - questionId: {{ cw_q_do_region_id }}
+            - questionId: "{{ cw_q_do_region_id }}"
               answer:     "{{ do_region.slug | default('') }}"
-            - questionId: {{ cw_q_do_tags_id }}
+            - questionId: "{{ cw_q_do_tags_id }}"
               answer:     "{{ do_tags | join(', ') if do_tags is defined else '' }}"
-            - questionId: {{ cw_q_private_ip_id }}
+            - questionId: "{{ cw_q_private_ip_id }}"
               answer:     "{{ (do_networks.v4 | selectattr('type','equalto','private') | map(attribute='ip_address') | list | first) | default('') }}"
-            - questionId: {{ cw_q_core_count_id }}
+            - questionId: "{{ cw_q_core_count_id }}"
               answer:     "{{ do_vcpus | default(0) }}"
-            - questionId: {{ cw_q_disk_id }}
+            - questionId: "{{ cw_q_disk_id }}"
               answer:     "{{ do_disk | default(0) }}"
 
     - name: Create configuration when absent
