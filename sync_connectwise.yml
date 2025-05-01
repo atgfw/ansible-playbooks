@@ -27,11 +27,9 @@
     cw_q_do_region_id:            1370
     cw_q_do_tags_id:              1372
     cw_q_private_ip_id:           1373
-    cw_q_core_count_id:           1375
-    cw_q_disk_id:                 1371
-    cw_q_size_slug_id:            1374
-    cw_q_price_monthly_id:        1376
-    cw_q_networking_throughput_id: 1377
+    cw_q_size_slug_id:            1371
+    cw_q_price_monthly_id:        1375
+    cw_q_networking_throughput_id: 1376
 
   tasks:
     - name: Validate ConnectWise credentials
@@ -128,10 +126,6 @@
               answer:     "{{ do_tags | join(', ') if do_tags is defined else '' }}"
             - questionId: "{{ cw_q_private_ip_id }}"
               answer:     "{{ (do_networks.v4 | selectattr('type','equalto','private') | map(attribute='ip_address') | list | first) | default('') }}"
-            - questionId: "{{ cw_q_core_count_id }}"
-              answer:     "{{ do_vcpus | default(0) }}"
-            - questionId: "{{ cw_q_disk_id }}"
-              answer:     "{{ do_disk | default(0) }}"
             - questionId: "{{ cw_q_size_slug_id }}"
               answer:     "{{ do_size.slug | default('') }}"
             - questionId: "{{ cw_q_price_monthly_id }}"
