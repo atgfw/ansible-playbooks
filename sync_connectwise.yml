@@ -97,26 +97,24 @@
             name: "DigitalOcean"
           modelNumber: "{{ do_size.slug | default('') }}"
           serialNumber: "{{ do_id | default('') }}"
-          coreCount: "{{ do_vcpus | default(0) }}"
           ram: "{{ do_memory | default(0) }}"
-          hardDrive: "{{ do_disk | default(0) }}"
           osType: "{{ distro | default(ansible_distribution) }}"
           osInfo: "{{ do_image.description | default('') }}"
-          ipAddress: "{{ (do_networks.v4 | selectattr('type','equalto','public') | map(attribute='ip_address') | list | first) | default(ansible_default_ipv4.address | default('')) }}"
+          ipAddress: "{{ ansible_host }}"
           macAddress: "{{ ansible_default_ipv4.macaddress | default('') }}"
           networkName: "{{ do_name | default(inventory_hostname) }}"
-          customFields:
-            - caption: "Droplet ID"
-              value:   "{{ do_id | default('') }}"
-            - caption: "DO Region"
-              value:   "{{ do_region.slug | default('') }}"
-            - caption: "DO Size"
-              value:   "{{ do_size.slug | default('') }}"
-            - caption: "DO Tags"
-              value:   "{{ do_tags | join(', ') if do_tags is defined else '' }}"
-            - caption: "Private IP"
-              value: >-
-                {{ (do_networks.v4 | selectattr('type','equalto','private') | map(attribute='ip_address') | list | first) | default('') }}
+          questions:
+            - question: "DO Region"
+              answer: "{{ do_region.slug | default('') }}"
+            - question: "DO Tags"
+              answer: "{{ do_tags | join(', ') if do_tags is defined else '' }}"
+            - question: "Private IP"
+              answer: "{{ (do_networks.v4 | selectattr('type','equalto','private') | map(attribute='ip_address') | list | first) | default('') }}"
+            - question: "Core Count"
+              answer: "{{ do_vcpus | default(0) }}"
+            - question: "Disk"
+              answer: "{{ do_disk | default(0) }}"
+              
 
     - name: Create configuration when absent
       when: cw_search.json | length == 0
