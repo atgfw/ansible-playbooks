@@ -6,7 +6,12 @@
 - name: Sync host facts to ConnectWise Manage configuration
   hosts: all
   gather_facts: yes
-
+  
+  pre_tasks:
+    - name: Skip hosts beginning with "biggernodes"
+      meta: end_host
+      when: inventory_hostname | regex_search('^biggernodes')
+      
   vars:
     cw_base_url: "https://{{ CW_SITE | default('na.myconnectwise.net') }}/v4_6_release/apis/3.0"
 
