@@ -53,7 +53,7 @@
              | default([])
              | select('match','^company:')
              | map('regex_replace','^company:','')
-             | map('replace','_',' ')
+             | map('replace','_','%20')
              | list
              | first
              | default('')
