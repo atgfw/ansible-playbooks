@@ -51,11 +51,12 @@
         cw_company_ident: >-
           {{ do_tags
              | default([])
-             | select('match', '^company:')
-             | map('regex_replace', '^company:', '')
+             | select('match','^company:')
+             | map('regex_replace','^company:','')
              | list
-             | first
+             | first(default(''))
              | replace('_',' ')
+          }}
           }}
 
     - name: Fail if no company tag
