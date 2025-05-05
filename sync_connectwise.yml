@@ -53,9 +53,10 @@
              | default([])
              | select('match','^company:')
              | map('regex_replace','^company:','')
+             | map('replace','_',' ')
              | list
-             | first(default(''))
-             | replace('_',' ')
+             | first
+             | default('')
           }}
           }}
 
