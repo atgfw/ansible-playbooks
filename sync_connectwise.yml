@@ -58,7 +58,6 @@
              | first
              | default('')
           }}
-          }}
 
     - name: Fail if no company tag
       fail:
