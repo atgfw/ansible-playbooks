@@ -55,6 +55,7 @@
              | map('regex_replace', '^company:', '')
              | list
              | first
+             | replace('_',' ')
           }}
 
     - name: Fail if no company tag
