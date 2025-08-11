@@ -1,0 +1,19 @@
+---
+- hosts: passportalbackup
+  become: true
+  become_user: sysadmin
+  tasks:
+    - name: backup passwords
+      shell: "/home/sysadmin/backuppasswords.sh"
+      
+    - name: Check backup file exists
+      ansible.builtin.stat:
+        path: "/home/sysadmin/passwords.csv"   # e.g. /mnt/big/backup.img
+        follow: true                    # follow symlinks if present
+        get_checksum: false             # avoid hashing large files
+        get_mime: false                 # skip MIME probe
+        get_attributes: false
+      register: passwords
+      changed_when: false
+      failed_when: not passwords.stat.exists
+      
