@@ -16,6 +16,14 @@
         password: "{{ auth_pass }}"
         crypt_scheme: bcrypt
       no_log: true
+    - name: Compute Windows-style path for EXTRACTFILEPATH (Z:\...)
+      ansible.builtin.set_fact:
+        extract_path_win: "Z:{{ passportal_extract_path | replace('/', '\\') }}"
+
+    - name: Fail if EXE missing
+      ansible.builtin.fail:
+        msg: "Passportal EXE not found at {{ passportal_exe }}"
+      when: not passportal_exe_stat.stat.exists
       
     - name: Run Passportal Backup Utility via Wine
       become: true
@@ -26,11 +34,13 @@
           - "{{ passportal_exe }}"
           - "ACCESSKEY={{ passportal_access_key }}"
           - "ORGKEY={{ passportal_org_key }}"
-          - "EXTRACTFILEPATH={{ passportal_extract_path }}"
+          - "EXTRACTFILEPATH={{ extract_path_win }}"
           - "ZIPFILEPASSWORD={{ passportal_zip_password }}"
+        chdir: "{{ passportal_exe | dirname }}"
       environment:
         WINEPREFIX: "{{ wine_prefix | default(lookup('env', 'HOME') + '/.wine') }}"
       no_log: true
+      
       
       
     - name: Check backup file exists
