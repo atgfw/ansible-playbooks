@@ -5,7 +5,7 @@
     wine_prefix: "/home/sysadmin/.wine"
     wine_bin: "/usr/bin/wine"
     passportal_exe: "/home/sysadmin/.wine/drive_c/Program Files/N-able/Passportal Backup Utility/PassportalBackupUtility.exe"
-    passportal_extract_path: "/home/sysadmin/passwords.zip"
+    passportal_extract_path: "/home/sysadmin/passwords"
     download_root: "/srv/secure-downloads"
     download_name: "passportal_backup.zip"
   tasks:
@@ -55,7 +55,7 @@
       
     - name: Check backup file exists
       ansible.builtin.stat:
-        path: "{{ passportal_extract_path }}"
+        path: "{{ passportal_extract_path }}.zip"
         follow: true
         get_checksum: false
         get_mime: false
