@@ -20,6 +20,12 @@
       ansible.builtin.set_fact:
         extract_path_win: 'Z:{{ passportal_extract_path | replace("/", "\\") }}'
 
+    - name: Check Passportal EXE exists on host
+      ansible.builtin.stat:
+        path: "{{ passportal_exe }}"
+      register: passportal_exe_stat
+      changed_when: false
+  
     - name: Fail if EXE missing
       ansible.builtin.fail:
         msg: "Passportal EXE not found at {{ passportal_exe }}"
