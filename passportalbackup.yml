@@ -1,19 +1,69 @@
 ---
 - hosts: passportalbackup
-  become: true
-  become_user: sysadmin
+
+  vars:
+    wine_prefix: "/home/sysadmin/.wine"
+    wine_bin: "/usr/bin/wine"
+    passportal_exe: "/home/sysadmin/.wine/drive_c/Program Files/N-able/Passportal Backup Utility/PassportalBackupUtility.exe"
+    passportal_extract_path: "/home/sysadmin/passwords.zip"
+    download_root: "/srv/secure-downloads"
+    download_name: "passportal_backup.zip"
   tasks:
-    - name: backup passwords
-      shell: "/home/sysadmin/backuppasswords.sh"
+    - name: Create Basic Auth file
+      community.general.htpasswd:
+        path: /etc/nginx/.htpasswd
+        name: "{{ auth_user }}"
+        password: "{{ auth_pass }}"
+        crypt_scheme: bcrypt
+      no_log: true
+      
+    - name: Run Passportal Backup Utility via Wine
+      become: true
+      become_user: sysadmin
+      ansible.builtin.command:
+        argv:
+          - "{{ wine_bin | default('/usr/bin/wine') }}"
+          - "{{ passportal_exe }}"
+          - "ACCESSKEY={{ passportal_access_key }}"
+          - "ORGKEY={{ passportal_org_key }}"
+          - "EXTRACTFILEPATH={{ passportal_extract_path }}"
+          - "ZIPFILEPASSWORD={{ passportal_zip_password }}"
+      environment:
+        WINEPREFIX: "{{ wine_prefix | default(lookup('env', 'HOME') + '/.wine') }}"
+      no_log: true
+      
       
     - name: Check backup file exists
       ansible.builtin.stat:
-        path: "/home/sysadmin/passwords.csv"   # e.g. /mnt/big/backup.img
-        follow: true                    # follow symlinks if present
-        get_checksum: false             # avoid hashing large files
-        get_mime: false                 # skip MIME probe
+        path: "{{ passportal_extract_path }}"
+        follow: true
+        get_checksum: false
+        get_mime: false
         get_attributes: false
       register: passwords
       changed_when: false
       failed_when: not passwords.stat.exists
+      
+    - name: Create Basic Auth file
+      community.general.htpasswd:
+        path: /etc/nginx/.htpasswd
+        name: "{{ auth_user }}"
+        password: "{{ auth_pass }}"
+        crypt_scheme: bcrypt
+      no_log: true
+      
+    - name: Move the ZIP into the served directory
+      commmand: "mv {{ passportal_extract_path }} {{ download_root }}/{{ download_name }}"
+      
+    - name: Change file ownership, group and permissions
+      ansible.builtin.file:
+        path: "{{ download_root }}/{{ download_name }}"
+        owner: www-data
+        group: www-data
+        mode: "0750"
+        state: file
+        modification_time: now
+        access_time: now
+
+
       
