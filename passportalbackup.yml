@@ -18,7 +18,7 @@
       no_log: true
     - name: Compute Windows-style path for EXTRACTFILEPATH (Z:\...)
       ansible.builtin.set_fact:
-        extract_path_win: "Z:{{ passportal_extract_path | replace('/', '\\') }}"
+        extract_path_win: 'Z:{{ passportal_extract_path | replace("/", "\\") }}'
 
     - name: Fail if EXE missing
       ansible.builtin.fail:
