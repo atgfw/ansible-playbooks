@@ -6,6 +6,7 @@
     wine_bin: "/usr/bin/wine"
     passportal_exe: "/home/sysadmin/.wine/drive_c/Program Files/N-able/Passportal Backup Utility/PassportalBackupUtility.exe"
     passportal_extract_path: "/home/sysadmin/passwords"
+    extract_path_win: "Z:\home\sysadmin\passwords"
     download_root: "/srv/secure-downloads"
     download_name: "passportal_backup.zip"
   tasks:
@@ -16,9 +17,6 @@
         password: "{{ auth_pass }}"
         crypt_scheme: bcrypt
       no_log: true
-    - name: Compute Windows-style path for EXTRACTFILEPATH (Z:\...)
-      ansible.builtin.set_fact:
-        extract_path_win: 'Z:{{ passportal_extract_path | replace("/", "\\") }}'
 
     - name: Check Passportal EXE exists on host
       ansible.builtin.stat:
