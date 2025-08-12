@@ -36,12 +36,16 @@
       become_user: sysadmin
       ansible.builtin.command:
         argv:
-          - "{{ wine_bin | default('/usr/bin/wine') }}"
-          - "{{ passportal_exe }}"
-          - "ACCESSKEY={{ passportal_access_key }}"
-          - "ORGKEY={{ passportal_org_key }}"
-          - "EXTRACTFILEPATH={{ extract_path_win }}"
-          - "ZIPFILEPASSWORD={{ passportal_zip_password }}"
+        - /usr/bin/xvfb-run
+        - -a
+        - -s
+        - "-screen 0 1280x800x24 -ac"
+        - "{{ wine_bin | default('/usr/bin/wine') }}"
+        - "{{ passportal_exe }}"
+        - "ACCESSKEY={{ passportal_access_key }}"
+        - "ORGKEY={{ passportal_org_key }}"
+        - "EXTRACTFILEPATH={{ extract_path_win }}"
+        - "ZIPFILEPASSWORD={{ passportal_zip_password }}"
         chdir: "{{ passportal_exe | dirname }}"
       environment:
         WINEPREFIX: "{{ wine_prefix | default(lookup('env', 'HOME') + '/.wine') }}"
