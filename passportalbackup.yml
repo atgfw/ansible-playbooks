@@ -5,7 +5,7 @@
     wine_prefix: "/home/sysadmin/.wine"
     wine_bin: "/usr/bin/wine"
     passportal_exe: "/home/sysadmin/.wine/drive_c/Program Files/N-able/Passportal Backup Utility/PassportalBackupUtility.exe"
-    passportal_extract_path: "/home/sysadmin/.wine/drive_c/Program\ Files/N-able/Passportal\ Backup\ Utility/PasswordBackup.csv.zip"
+    passportal_extract_path: "/home/sysadmin/.wine/drive_c/Program\ Files/N-able/Passportal\ Backup\ Utility/PasswordBackup.csv"
     download_root: "/srv/secure-downloads"
     download_name: "passportal_backup.zip"
   tasks:
@@ -42,7 +42,6 @@
         - "ACCESSKEY={{ passportal_access_key }}"
         - "ORGKEY={{ passportal_org_key }}"
         - 'EXTRACTFILEPATH="./"'
-        - "ZIPFILEPASSWORD={{ passportal_zip_password }}"
         chdir: "{{ passportal_exe | dirname }}"
       environment:
         WINEPREFIX: "{{ wine_prefix | default(lookup('env', 'HOME') + '/.wine') }}"
@@ -60,6 +59,16 @@
       register: passwords
       changed_when: false
       failed_when: not passwords.stat.exists
+
+    - name: Add file to AES-256 encrypted ZIP
+      ansible.builtin.expect:
+        command: >-
+          7z a -tzip -mem=AES256 "{{ download_root }}/{{ download_name }}" "{{ passportal_extract_path }}" -p
+        responses:
+          'Enter password': "{{ passportal_zip_password }}"
+          'Reenter password': "{{ passportal_zip_password }}"
+        echo: no
+      no_log: true
       
     - name: Create Basic Auth file
       community.general.htpasswd:
@@ -68,9 +77,14 @@
         password: "{{ auth_pass }}"
         crypt_scheme: bcrypt
       no_log: true
+
+    - name: Remove password csv
+      ansible.builtin.file:
+        path: {{ passportal_extract_path }}
+        state: absent
       
-    - name: Move the ZIP into the served directory
-      ansible.builtin.command: 'mv "/home/sysadmin/.wine/drive_c/Program Files/N-able/Passportal Backup Utility/PasswordBackup.csv.zip" {{ download_root }}/{{ download_name }}'
+    # - name: Move the ZIP into the served directory
+    #   ansible.builtin.command: 'mv "/home/sysadmin/.wine/drive_c/Program Files/N-able/Passportal Backup Utility/PasswordBackup.csv.zip" {{ download_root }}/{{ download_name }}'
       
     - name: Change file ownership, group and permissions
       ansible.builtin.file:
