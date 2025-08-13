@@ -6,7 +6,7 @@
     wine_bin: "/usr/bin/wine"
     passportal_exe: "/home/sysadmin/.wine/drive_c/Program Files/N-able/Passportal Backup Utility/PassportalBackupUtility.exe"
     passportal_extract_path: "/home/sysadmin/passwords"
-    extract_path_win: "Z:\home\sysadmin\passwords"
+    extract_path_win: "Z:\\home\\sysadmin\\passwords"
     download_root: "/srv/secure-downloads"
     download_name: "passportal_backup.zip"
   tasks:
