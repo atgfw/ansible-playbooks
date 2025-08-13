@@ -70,7 +70,7 @@
       no_log: true
       
     - name: Move the ZIP into the served directory
-      ansible.builtin.command: "mv {{ passportal_extract_path }} {{ download_root }}/{{ download_name }}"
+      ansible.builtin.command: 'mv "/home/sysadmin/.wine/drive_c/Program Files/N-able/Passportal Backup Utility/PasswordBackup.csv.zip" {{ download_root }}/{{ download_name }}'
       
     - name: Change file ownership, group and permissions
       ansible.builtin.file:
