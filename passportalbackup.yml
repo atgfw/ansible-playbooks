@@ -80,7 +80,7 @@
 
     - name: Remove password csv
       ansible.builtin.file:
-        path: {{ passportal_extract_path }}
+        path: "{{ passportal_extract_path }}"
         state: absent
       
     # - name: Move the ZIP into the served directory
